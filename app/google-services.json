@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "816627608252",
+    "project_id": "stock-manager-d650f",
+    "storage_bucket": "stock-manager-d650f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:816627608252:android:3e592cfd5301eb0ae33eb9",
+        "android_client_info": {
+          "package_name": "com.stakia.stockmanager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3NPtP74QJwEXM96bwsPSRoEDFrl_VENA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
