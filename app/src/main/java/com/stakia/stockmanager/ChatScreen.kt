@@ -243,14 +243,6 @@ fun ChatScreen(
                 scope.launch(Dispatchers.Main) {
                     onlineUsers = onlineUsers - userId
                 }
-            },
-            onNewMessage = { data ->
-                scope.launch(Dispatchers.Main) {
-                    try {
-                        val msg = neuralJson.decodeFromString<ChatMessage>(data.toString())
-                        messages = messages + msg
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
             }
         )
     }
@@ -371,6 +363,7 @@ fun ChatScreen(
                 )
                 "conversation" -> ConversationScreen(
                     currentUserId = currentUserId,
+                    userProfile = userProfile,
                     profile = selectedProfile,
                     group = selectedGroup,
                     onBack = { currentView = "list" },
@@ -410,7 +403,7 @@ fun ChatScreen(
                                             SignalingManager.sendSignal(peerId, currentUserId, "Me", null, type, null, null, candObj, isGroup, targetId)
                                         }
                                     },
-                                    onTrackAdded = { pid ->
+                                    onTrackAdded = { 
                                         scope.launch(Dispatchers.Main) {
                                             activeCall = activeCall?.copy(status = "connected")
                                         }
@@ -587,6 +580,7 @@ fun ChatListScreen(
 @Composable
 fun ConversationScreen(
     currentUserId: String,
+    userProfile: Profile?,
     profile: Profile?,
     group: ChatGroup?,
     onBack: () -> Unit,
@@ -620,7 +614,40 @@ fun ConversationScreen(
 
     val channelId = if (profile != null) "neural-user-sync:$currentUserId" else "neural-group-sync:${group?.id}"
     
-    LaunchedEffect(channelId, currentUserId, profile?.id, group?.id) {
+    fun handleSendMessage(content: String, fileUrl: String? = null, fileType: String? = null, replyTo: String? = null) {
+        if (content.isBlank() && fileUrl == null) return
+        
+        val tempId = java.util.UUID.randomUUID().toString()
+        val newMessage = ChatMessage(
+            id = tempId,
+            sender_id = currentUserId,
+            content = content,
+            created_at = java.time.Instant.now().toString(),
+            file_url = fileUrl,
+            file_type = fileType,
+            recipient_id = if (profile != null) profile.id else null,
+            group_id = if (group != null) group.id else null,
+            sender_name = userProfile?.first_name ?: "Me",
+            sender_avatar = userProfile?.avatar_url,
+            reply_to_id = replyTo
+        )
+        
+        messages = messages + newMessage
+        
+        SignalingManager.sendMessage(
+            to = profile?.id ?: group?.id ?: "",
+            content = content,
+            senderName = userProfile?.first_name ?: "Neural User",
+            senderAvatar = userProfile?.avatar_url,
+            isGroup = group != null,
+            tempId = tempId,
+            fileUrl = fileUrl,
+            fileType = fileType,
+            replyTo = replyTo
+        )
+    }
+
+    LaunchedEffect(currentUserId, profile?.id, group?.id) {
         if (currentUserId.isBlank()) return@LaunchedEffect
         
         try {
@@ -637,39 +664,6 @@ fun ConversationScreen(
                 .filter { msg -> msg.deleted_for_users?.contains(currentUserId) != true }
                 .sortedBy { it.created_at }
         } catch (e: Exception) { e.printStackTrace() }
-
-        fun handleSendMessage(content: String, fileUrl: String? = null, fileType: String? = null, replyTo: String? = null) {
-            if (content.isBlank() && fileUrl == null) return
-            
-            val tempId = java.util.UUID.randomUUID().toString()
-            val newMessage = ChatMessage(
-                id = tempId,
-                sender_id = currentUserId,
-                content = content,
-                created_at = java.time.Instant.now().toString(),
-                file_url = fileUrl,
-                file_type = fileType,
-                recipient_id = if (profile != null) profile.id else null,
-                group_id = if (group != null) group.id else null,
-                sender_name = userProfile?.first_name ?: "Me",
-                sender_avatar = userProfile?.avatar_url,
-                reply_to_id = replyTo
-            )
-            
-            messages = messages + newMessage
-            
-            SignalingManager.sendMessage(
-                to = profile?.id ?: group?.id ?: "",
-                content = content,
-                senderName = userProfile?.first_name ?: "Neural User",
-                senderAvatar = userProfile?.avatar_url,
-                isGroup = group != null,
-                tempId = tempId,
-                fileUrl = fileUrl,
-                fileType = fileType,
-                replyTo = replyTo
-            )
-        }
 
         // Membership Auto-Sync Listener
         val membershipChannel = SupabaseManager.client.channel("membership-auto-sync-$currentUserId")
@@ -694,36 +688,35 @@ fun ConversationScreen(
             }
         }
         membershipChannel.subscribe()
+    }
 
-        val channel = SupabaseManager.client.channel(channelId) {
-            broadcast { 
-                receiveOwnBroadcasts = true
-                acknowledgeBroadcasts = true
+    // Signaling Socket Listener for New Messages
+    DisposableEffect(currentUserId, profile?.id, group?.id) {
+        SignalingManager.onNewMessageListener = { data ->
+            scope.launch(Dispatchers.Main) {
+                try {
+                    val msg = neuralJson.decodeFromString<ChatMessage>(data.toString())
+                    if (msg.deleted_for_users?.contains(currentUserId) == true) return@launch
+                    
+                    if (!messages.any { it.id == msg.id || (it.id.length < 30 && it.content == msg.content && it.sender_id == msg.sender_id) }) {
+                        val isForThisChat = if (profile != null) {
+                            (msg.sender_id == profile.id && msg.recipient_id == currentUserId) ||
+                            (msg.sender_id == currentUserId && msg.recipient_id == profile.id)
+                        } else if (group != null) {
+                            msg.group_id == group.id
+                        } else false
+                        
+                        if (isForThisChat) {
+                            messages = messages + msg
+                        }
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
             }
         }
-        val msgFlow = channel.broadcastFlow<JsonObject>("new_message")
-        channel.subscribe()
-        
-        msgFlow.collect { payload -> 
-                    try {
-                        val msg = neuralJson.decodeFromJsonElement<ChatMessage>(payload)
-                        withContext(Dispatchers.Main) {
-                            if (msg.deleted_for_users?.contains(currentUserId) == true) return@withContext
-                            
-                            if (!messages.any { it.id == msg.id }) {
-                                val isForThisChat = if (profile != null) {
-                                    (msg.sender_id == profile.id && msg.recipient_id == currentUserId) ||
-                                    (msg.sender_id == currentUserId && msg.recipient_id == profile.id)
-                                } else if (group != null) {
-                                    msg.group_id == group.id
-                                } else false
-                                
-                                if (isForThisChat) messages = messages + msg
-                            }
-                        }
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
-}
+        onDispose {
+            SignalingManager.onNewMessageListener = null
+        }
+    }
 
     LaunchedEffect(isRecording) {
         if (isRecording) {
@@ -977,7 +970,7 @@ fun ConversationScreen(
                             permissionLauncher.launch(arrayOf(android.Manifest.permission.RECORD_AUDIO))
                             audioFile.value = File(context.cacheDir, "audio_${System.currentTimeMillis()}.m4a")
                             try {
-                                mediaRecorder.value = (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) android.media.MediaRecorder(context) else android.media.MediaRecorder()).apply { 
+                                mediaRecorder.value = (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) android.media.MediaRecorder(context) else @Suppress("DEPRECATION") android.media.MediaRecorder()).apply { 
                                     setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
                                     setOutputFormat(android.media.MediaRecorder.OutputFormat.MPEG_4)
                                     setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
@@ -990,7 +983,7 @@ fun ConversationScreen(
                             } catch (e: Exception) { e.printStackTrace() }
                         }
                     }, contentAlignment = Alignment.Center) {
-                        Icon(if (canSend) Icons.Default.Send else if (isRecording) Icons.Default.Check else Icons.Default.Mic, contentDescription = null, tint = if (isRecording) Color.Black else if (canSend) accentYellow else Color.Gray)
+                        Icon(if (canSend) Icons.AutoMirrored.Filled.Send else if (isRecording) Icons.Default.Check else Icons.Default.Mic, contentDescription = null, tint = if (isRecording) Color.Black else if (canSend) accentYellow else Color.Gray)
                     }
                 }
             }

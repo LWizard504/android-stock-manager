@@ -9,6 +9,8 @@ object SignalingManager {
     private var socket: Socket? = null
     private const val SERVER_URL = "https://api-stockm-call-service.onrender.com"
 
+    var onNewMessageListener: ((JSONObject) -> Unit)? = null
+
     fun disconnect() {
         socket?.disconnect()
         socket?.off()
@@ -39,6 +41,7 @@ object SignalingManager {
             socket?.on("new-message") { args ->
                 val data = args[0] as JSONObject
                 onNewMessage(data)
+                onNewMessageListener?.invoke(data)
             }
             
             socket?.on(Socket.EVENT_CONNECT) {

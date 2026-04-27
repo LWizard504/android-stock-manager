@@ -36,6 +36,8 @@ data class ChatMessage(
     val file_url: String? = null,
     val file_type: String? = null, // image, audio, video, file, sticker
     val reply_to_id: String? = null,
+    val sender_name: String? = null,
+    val sender_avatar: String? = null,
     val deleted_for_users: List<String>? = emptyList()
 )
 
