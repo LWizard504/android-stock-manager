@@ -239,7 +239,6 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                             isLoading = true
                             errorMessage = ""
                             try {
-                            try {
                                 // 1. Create Tenant
                                 val tenantId = java.util.UUID.randomUUID().toString()
                                 SupabaseManager.client.postgrest.from("tenants").insert(mapOf(

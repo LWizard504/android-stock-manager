@@ -12,6 +12,7 @@ data class Profile(
     val email: String? = null,
     val avatar_url: String? = null,
     val role: String? = null,
+    val tenant_id: String? = null,
     val last_message: String? = null,
     val last_message_at: String? = null
 )

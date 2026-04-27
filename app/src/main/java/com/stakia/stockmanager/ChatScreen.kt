@@ -983,7 +983,7 @@ fun ConversationScreen(
                             } catch (e: Exception) { e.printStackTrace() }
                         }
                     }, contentAlignment = Alignment.Center) {
-                        Icon(if (canSend) Icons.AutoMirrored.Filled.Send else if (isRecording) Icons.Default.Check else Icons.Default.Mic, contentDescription = null, tint = if (isRecording) Color.Black else if (canSend) accentYellow else Color.Gray)
+                        Icon(if (canSend) Icons.Default.Send else if (isRecording) Icons.Default.Check else Icons.Default.Mic, contentDescription = null, tint = if (isRecording) Color.Black else if (canSend) accentYellow else Color.Gray)
                     }
                 }
             }

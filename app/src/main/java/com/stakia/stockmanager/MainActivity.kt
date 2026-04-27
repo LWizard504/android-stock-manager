@@ -481,10 +481,10 @@ fun AppNavigation(
                 "dashboard" -> {
                     when (userProfile?.role) {
                         "superadmin" -> SuperAdminScreen(onOpenDrawer = onOpenDrawer)
-                        "manager" -> ManagerScreen(onOpenDrawer = onOpenDrawer)
-                        "employee" -> POSScreen(onOpenDrawer = onOpenDrawer)
-                        "it", "global_it" -> ITInventoryScreen(onOpenDrawer = onOpenDrawer)
-                        else -> SuperAdminScreen(onOpenDrawer = onOpenDrawer) // Fallback
+                        "manager" -> SuperAdminScreen(onOpenDrawer = onOpenDrawer) // Fallback for missing ManagerScreen
+                        "employee" -> SuperAdminScreen(onOpenDrawer = onOpenDrawer) // Fallback for missing POSScreen
+                        "it", "global_it" -> SuperAdminScreen(onOpenDrawer = onOpenDrawer) // Fallback for missing ITInventoryScreen
+                        else -> SuperAdminScreen(onOpenDrawer = onOpenDrawer)
                     }
                 }
                 "chat" -> ChatScreen(
