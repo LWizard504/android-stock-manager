@@ -272,8 +272,7 @@ fun ProfileScreen(onOpenDrawer: () -> Unit, selectedBg: String, onBgChange: (Str
                         accentColor = saasYellow,
                         onClick = {
                             android.widget.Toast.makeText(context, "Buscando actualizaciones...", android.widget.Toast.LENGTH_SHORT).show()
-                            // The global UpdateManager in MainActivity handles the logic.
-                            // We can trigger a re-check here if we want by restarting the app or using a shared state.
+                            UpdateManager.forceCheck()
                         }
                     )
                 }

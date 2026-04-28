@@ -15,21 +15,34 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object UpdateManager {
-    // Configura aquí la URL de tu repositorio
     private const val REPO_URL = "https://raw.githubusercontent.com/LWizard504/android-stock-manager/main/APK"
     private const val VERSION_FILE_URL = "$REPO_URL/version.txt"
     private const val APK_URL = "$REPO_URL/app-release.apk"
+
+    // Estado global para controlar el diálogo
+    private var isSearchingManual = mutableStateOf(false)
 
     @Composable
     fun CheckForUpdates(currentVersion: String, context: Context) {
         var showDialog by remember { mutableStateOf(false) }
         var latestVersion by remember { mutableStateOf("") }
+        var triggerCheck by remember { mutableStateOf(0) } // Para forzar re-chequeo manual
 
-        LaunchedEffect(Unit) {
-            val versionFromServer = fetchLatestVersion()
-            if (versionFromServer != null && isNewerVersion(currentVersion, versionFromServer)) {
-                latestVersion = versionFromServer
-                showDialog = true
+        // Observar si se activa la búsqueda manual
+        val manualCheck by isSearchingManual
+
+        LaunchedEffect(triggerCheck, manualCheck) {
+            if (triggerCheck >= 0 || manualCheck) {
+                val versionFromServer = fetchLatestVersion()
+                if (versionFromServer != null && isNewerVersion(currentVersion, versionFromServer)) {
+                    latestVersion = versionFromServer
+                    showDialog = true
+                } else if (manualCheck) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Ya tienes la última versión (v$currentVersion)", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                isSearchingManual.value = false
             }
         }
 
@@ -37,7 +50,7 @@ object UpdateManager {
             AlertDialog(
                 onDismissRequest = { showDialog = false },
                 title = { Text("Actualización Disponible") },
-                text = { Text("Hay una nueva versión disponible (v$latestVersion). ¿Deseas descargarla?") },
+                text = { Text("Hay una nueva versión disponible (v$latestVersion). ¿Deseas descargarla ahora?") },
                 confirmButton = {
                     TextButton(onClick = {
                         showDialog = false
@@ -54,6 +67,11 @@ object UpdateManager {
                 }
             )
         }
+    }
+
+    // Función para llamar desde el botón de Configuración
+    fun forceCheck() {
+        isSearchingManual.value = true
     }
 
     private suspend fun fetchLatestVersion(): String? = withContext(Dispatchers.IO) {
