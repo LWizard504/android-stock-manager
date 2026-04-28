@@ -54,7 +54,7 @@
         <receiver android:name=".ReplyReceiver" android:exported="false" />
 
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name=".GenericFileProvider"
             android:authorities="com.stakia.stockmanager.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
