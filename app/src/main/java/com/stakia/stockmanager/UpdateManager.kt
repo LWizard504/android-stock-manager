@@ -90,7 +90,7 @@ object UpdateManager {
                 }
             }
 
-            downloadInfo = "Descarga completada. Abriendo instalador..."
+            downloadInfo = "Descarga Finalizada. Abriendo instalador..."
             installApk(context, file)
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {

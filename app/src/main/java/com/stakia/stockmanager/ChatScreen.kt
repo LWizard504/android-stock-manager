@@ -385,7 +385,7 @@ fun ChatScreen(
         }
         
         viewingImageUrl?.let { url ->
-            ImagePreview(url = url, onDismiss = { viewingImageUrl = null })
+            MediaPreview(urlOverride = url, onDismiss = { viewingImageUrl = null })
         }
     }
 }
@@ -717,11 +717,46 @@ fun CallLogItem(log: CallLog, currentUserId: String, accentColor: Color, onClick
 }
 
 @Composable
-fun ImagePreview(url: String, onDismiss: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.9f)).clickable { onDismiss() }, contentAlignment = Alignment.Center) {
-        AsyncImage(model = url, contentDescription = null, modifier = Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Fit)
-        IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(top = 48.dp, end = 24.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)) {
-            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+fun MediaPreview(msg: ChatMessage? = null, urlOverride: String? = null, typeOverride: String = "image", onDismiss: () -> Unit) {
+    val url = urlOverride ?: msg?.file_url ?: return
+    val type = if (urlOverride != null) typeOverride else (msg?.file_type ?: "image")
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.95f))
+            .clickable(enabled = false) { } // Consume clicks to background
+    ) {
+        if (type == "video") {
+            AndroidView(
+                factory = { ctx ->
+                    android.widget.VideoView(ctx).apply {
+                        setVideoPath(url)
+                        val mediaController = android.widget.MediaController(ctx)
+                        mediaController.setAnchorView(this)
+                        setMediaController(mediaController)
+                        setOnPreparedListener { it.start() }
+                    }
+                },
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth()
+            )
+        } else {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
+        
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 48.dp, end = 24.dp)
+                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+        ) {
+            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.White)
         }
     }
 }
@@ -817,6 +852,7 @@ fun ConversationScreen(
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
     val selectedMessages = remember { mutableStateListOf<ChatMessage>() }
     var showMessageOptions by remember { mutableStateOf<ChatMessage?>(null) }
+    var previewMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     // Media States
     var isRecording by remember { mutableStateOf(false) }
@@ -1009,10 +1045,17 @@ fun ConversationScreen(
                                 } else {
                                     selectedMessages.add(msg)
                                 }
+                            } else if (msg.file_type == "image" || msg.file_type == "video") {
+                                previewMessage = msg
                             }
                         }
                     )
                 }
+            }
+
+            // Preview Overlay
+            previewMessage?.let { msg ->
+                MediaPreview(msg = msg, onDismiss = { previewMessage = null })
             }
 
             // Reply Preview
@@ -1276,7 +1319,7 @@ fun MessageBubble(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.End)) {
                     Text(
-                        msg.created_at?.takeLast(5) ?: "", 
+                        msg.created_at?.let { if (it.length >= 16) it.substring(11, 16) else it.takeLast(5) } ?: "", 
                         color = Color.Gray, 
                         fontSize = 9.sp
                     )

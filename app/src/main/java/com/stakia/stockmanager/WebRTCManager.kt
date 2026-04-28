@@ -68,10 +68,16 @@ class WebRTCManager(private val context: Context) {
 
     fun startLocalStreaming(isVideo: Boolean) {
         // Stop any existing streams first to free resources
-        localVideoTrack?.dispose()
-        localAudioTrack?.dispose()
-        videoCapturer?.stopCapture()
-        videoCapturer?.dispose()
+        try {
+            localVideoTrack?.dispose()
+            localAudioTrack?.dispose()
+            videoCapturer?.stopCapture()
+            videoCapturer?.dispose()
+        } catch (_: Exception) {}
+        
+        localVideoTrack = null
+        localAudioTrack = null
+        videoCapturer = null
         
         val am = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
@@ -90,7 +96,10 @@ class WebRTCManager(private val context: Context) {
             videoCapturer?.startCapture(1280, 720, 30)
 
             localVideoTrack = factory.createVideoTrack("ARDAMSv0", videoSource)
-            // We'll add the sink in the UI layer to ensure it's the right view
+            // Re-init local view if it was released
+            try {
+                localView.init(rootEglBase.eglBaseContext, null)
+            } catch (_: Exception) { /* Already init */ }
         }
     }
 
@@ -102,7 +111,6 @@ class WebRTCManager(private val context: Context) {
         val existing = remoteViewMap[userId]
         if (existing != null) return existing
         
-        // Si no existe, lo creamos. IMPORTANTE: Esto debe ser en el UI Thread si se llama desde WebRTC
         val view = SurfaceViewRenderer(context).apply {
             init(rootEglBase.eglBaseContext, null)
             setMirror(false)
@@ -183,6 +191,7 @@ class WebRTCManager(private val context: Context) {
             override fun onIceGatheringChange(p0: PeerConnection.IceGatheringState?) {}
             override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) {}
             override fun onRemoveStream(p0: MediaStream?) {}
+            override fun onRemoveTrack(p0: RtpReceiver?) {}
             override fun onDataChannel(p0: DataChannel?) {}
             override fun onRenegotiationNeeded() {}
         }
@@ -190,8 +199,8 @@ class WebRTCManager(private val context: Context) {
         val factory = ensureFactory()
         val pc = factory.createPeerConnection(rtcConfig, observer)
         
-        localAudioTrack?.let { pc?.addTrack(it, listOf("ARDAMS")) }
-        localVideoTrack?.let { pc?.addTrack(it, listOf("ARDAMS")) }
+        localAudioTrack?.let { if (it.state() != MediaStreamTrack.State.ENDED) pc?.addTrack(it, listOf("ARDAMS")) }
+        localVideoTrack?.let { if (it.state() != MediaStreamTrack.State.ENDED) pc?.addTrack(it, listOf("ARDAMS")) }
         
         if (pc != null) peerConnections[remoteUserId] = pc
         return pc
@@ -231,19 +240,33 @@ class WebRTCManager(private val context: Context) {
 
     fun stopAll() {
         audioManager.mode = android.media.AudioManager.MODE_NORMAL
-        videoCapturer?.stopCapture()
-        videoCapturer?.dispose()
+        
+        try {
+            videoCapturer?.stopCapture()
+            videoCapturer?.dispose()
+        } catch (_: Exception) {}
+        videoCapturer = null
+
         peerConnections.values.forEach { it.close() }
         peerConnections.clear()
-        localAudioTrack?.dispose()
-        localVideoTrack?.dispose()
-        localView.release()
-        remoteViewMap.values.forEach { it.release() }
-        remoteViewMap.clear()
         
-        peerConnectionFactory?.dispose()
+        try {
+            localAudioTrack?.dispose()
+            localVideoTrack?.dispose()
+        } catch (_: Exception) {}
+        localAudioTrack = null
+        localVideoTrack = null
+
+        try {
+            localView.release()
+            remoteViewMap.values.forEach { it.release() }
+            remoteViewMap.clear()
+        } catch (_: Exception) {}
+        
+        try {
+            peerConnectionFactory?.dispose()
+        } catch (_: Exception) {}
         peerConnectionFactory = null
-        // rootEglBase.release() // Optional, but usually good if we re-init
     }
 
     fun setAudioEnabled(enabled: Boolean) {
