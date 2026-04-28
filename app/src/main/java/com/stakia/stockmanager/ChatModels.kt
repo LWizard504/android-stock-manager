@@ -38,6 +38,8 @@ data class ChatMessage(
     val file_url: String? = null,
     val file_type: String? = null,
     val reply_to_id: String? = null,
+    val reply_to_content: String? = null,
+    val reply_to_sender: String? = null,
     val sender_name: String? = null,
     val sender_avatar: String? = null,
     val deleted_for_users: List<String>? = emptyList()

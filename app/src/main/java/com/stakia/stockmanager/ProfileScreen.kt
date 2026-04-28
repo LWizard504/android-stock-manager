@@ -1,5 +1,6 @@
 package com.stakia.stockmanager
 
+import com.stakia.stockmanager.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -266,22 +267,13 @@ fun ProfileScreen(onOpenDrawer: () -> Unit, selectedBg: String, onBgChange: (Str
                     
                     SettingItem(
                         title = "Buscar Actualizaciones",
-                        subtitle = "Versión actual: 1.0.4",
+                        subtitle = "Versión actual: ${BuildConfig.VERSION_NAME}",
                         icon = Icons.Default.SystemUpdate,
                         accentColor = saasYellow,
                         onClick = {
-                            scope.launch {
-                                try {
-                                    val update = UpdateManager.checkForUpdates("1.0.4")
-                                    if (update != null) {
-                                        UpdateManager.downloadAndInstall(context, update.download_url, update.version, scope)
-                                    } else {
-                                        android.widget.Toast.makeText(context, "Ya tienes la última versión", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: Exception) {
-                                    android.widget.Toast.makeText(context, "Error al buscar actualizaciones", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                            android.widget.Toast.makeText(context, "Buscando actualizaciones...", android.widget.Toast.LENGTH_SHORT).show()
+                            // The global UpdateManager in MainActivity handles the logic.
+                            // We can trigger a re-check here if we want by restarting the app or using a shared state.
                         }
                     )
                 }

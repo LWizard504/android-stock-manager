@@ -1,5 +1,6 @@
 package com.stakia.stockmanager
 
+import com.stakia.stockmanager.BuildConfig
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -276,6 +277,17 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onRegisterRequest: () -> Unit) {
                         modifier = Modifier.clickable { onRegisterRequest() }
                     )
                 }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Text(
+                    "VERSION ${BuildConfig.VERSION_NAME}",
+                    color = Color.DarkGray,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         }
     }

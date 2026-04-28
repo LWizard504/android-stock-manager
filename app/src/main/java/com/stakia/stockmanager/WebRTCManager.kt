@@ -22,7 +22,7 @@ class WebRTCManager(private val context: Context) {
  
     // Vistas para la UI
     val localView = SurfaceViewRenderer(context)
-    val remoteViews = mutableMapOf<String, SurfaceViewRenderer>()
+    val remoteViewMap = mutableMapOf<String, SurfaceViewRenderer>()
 
     init {
         val options = PeerConnectionFactory.InitializationOptions.builder(context)
@@ -67,6 +67,12 @@ class WebRTCManager(private val context: Context) {
     }
 
     fun startLocalStreaming(isVideo: Boolean) {
+        // Stop any existing streams first to free resources
+        localVideoTrack?.dispose()
+        localAudioTrack?.dispose()
+        videoCapturer?.stopCapture()
+        videoCapturer?.dispose()
+        
         val am = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
         am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
         am.isMicrophoneMute = false
@@ -84,12 +90,16 @@ class WebRTCManager(private val context: Context) {
             videoCapturer?.startCapture(1280, 720, 30)
 
             localVideoTrack = factory.createVideoTrack("ARDAMSv0", videoSource)
-            localVideoTrack?.addSink(localView)
+            // We'll add the sink in the UI layer to ensure it's the right view
         }
     }
 
+    fun addLocalSink(sink: VideoSink) {
+        localVideoTrack?.addSink(sink)
+    }
+
     fun getOrCreateRemoteView(userId: String): SurfaceViewRenderer {
-        val existing = remoteViews[userId]
+        val existing = remoteViewMap[userId]
         if (existing != null) return existing
         
         // Si no existe, lo creamos. IMPORTANTE: Esto debe ser en el UI Thread si se llama desde WebRTC
@@ -98,7 +108,7 @@ class WebRTCManager(private val context: Context) {
             setMirror(false)
             setEnableHardwareScaler(true)
         }
-        remoteViews[userId] = view
+        remoteViewMap[userId] = view
         return view
     }
 
@@ -210,8 +220,8 @@ class WebRTCManager(private val context: Context) {
         peerConnections[userId]?.close()
         peerConnections.remove(userId)
         remoteVideoTracks.remove(userId)
-        remoteViews[userId]?.release()
-        remoteViews.remove(userId)
+        remoteViewMap[userId]?.release()
+        remoteViewMap.remove(userId)
         iceCandidateQueues.remove(userId)
     }
 
@@ -228,8 +238,8 @@ class WebRTCManager(private val context: Context) {
         localAudioTrack?.dispose()
         localVideoTrack?.dispose()
         localView.release()
-        remoteViews.values.forEach { it.release() }
-        remoteViews.clear()
+        remoteViewMap.values.forEach { it.release() }
+        remoteViewMap.clear()
         
         peerConnectionFactory?.dispose()
         peerConnectionFactory = null

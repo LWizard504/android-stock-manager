@@ -1,5 +1,6 @@
 package com.stakia.stockmanager
 
+import com.stakia.stockmanager.BuildConfig
 import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -149,23 +150,79 @@ fun MainContent(
     isInPip: Boolean = false,
     autoAccept: Boolean = false
 ) {
+    var isInitialized by remember { mutableStateOf(false) }
     var currentScreen by remember(initialScreen) { 
-        mutableStateOf(initialScreen ?: if (SupabaseManager.client.auth.currentSessionOrNull() != null) "dashboard" else "login") 
+        val startScreen = when {
+            initialChatId != null -> "chat"
+            SupabaseManager.client.auth.currentSessionOrNull() != null -> "dashboard"
+            else -> "login"
+        }
+        mutableStateOf(initialScreen ?: startScreen) 
     }
+    
+    // Immediate navigation update
+    LaunchedEffect(initialChatId, initialOffer) {
+        if (initialChatId != null || initialOffer != null) {
+            currentScreen = "chat"
+        }
+        isInitialized = true
+    }
+
     var selectedBackground by remember { mutableStateOf("pure_black") }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val rtcManager = remember { WebRTCManager(context) }
     
-    var autoAcceptTriggered by remember { mutableStateOf(false) }
-    var userProfile by remember { mutableStateOf<Profile?>(null) }
     val activeCallState = remember { mutableStateOf<ActiveCallData?>(null) }
     val onlineUsersState = remember { mutableStateOf<Set<String>>(emptySet()) }
     val presencesState = remember { mutableStateMapOf<String, UserPresence>() }
-    val rtcManager = remember { WebRTCManager(context) }
+    
+    // Recovery Logic: Load last call if it was active
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("call_prefs", Context.MODE_PRIVATE)
+        val partnerId = prefs.getString("last_partner_id", null)
+        if (partnerId != null) {
+            val status = prefs.getString("last_status", "connected")
+            val name = prefs.getString("last_partner_name", "Neural User")
+            val type = prefs.getString("last_type", "audio")
+            
+            // Only restore if it was a connected call (don't restore incoming states to avoid loops)
+            if (status == "connected") {
+                activeCallState.value = ActiveCallData(
+                    partnerId = partnerId,
+                    partnerName = name ?: "User",
+                    status = status,
+                    type = type ?: "audio",
+                    isMinimized = true // Restore as minimized bar
+                )
+            }
+        }
+    }
+
+    // Persistence Logic: Save call state whenever it changes
+    LaunchedEffect(activeCallState.value) {
+        val call = activeCallState.value
+        onCallStateChanged(call)
+
+        val prefs = context.getSharedPreferences("call_prefs", Context.MODE_PRIVATE)
+        if (call != null && call.status == "connected") {
+            prefs.edit()
+                .putString("last_partner_id", call.partnerId)
+                .putString("last_partner_name", call.partnerName)
+                .putString("last_status", call.status)
+                .putString("last_type", call.type)
+                .apply()
+        } else if (call == null) {
+            prefs.edit().clear().apply()
+        }
+    }
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     
     val neuralJson = remember { Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true } }
+
+    var autoAcceptTriggered by remember { mutableStateOf(false) }
+    var userProfile by remember { mutableStateOf<Profile?>(null) }
 
     // Handle initial call from intent
     LaunchedEffect(initialOffer) {
@@ -466,6 +523,9 @@ fun MainContent(
         Scaffold(
             containerColor = Color.Transparent
         ) { padding ->
+            // Check for updates globally
+            UpdateManager.CheckForUpdates(currentVersion = BuildConfig.VERSION_NAME, context = context)
+
             Box(modifier = Modifier.fillMaxSize()) {
                 if (!isInPip) {
                     AppBackground(selectedBackground)
@@ -510,13 +570,20 @@ fun MainContent(
                     }
                 }
 
-                // Active Call Bar (Minimized) - Floating on top
+                // Global Active Call Bar - Always on top (except in chat where it's integrated below headers)
                 activeCallState.value?.let { call ->
-                    if (call.isMinimized && !isInPip && call.status == "connected") {
-                        Box(modifier = Modifier.fillMaxWidth().zIndex(100f)) {
+                    if (call.isMinimized && !isInPip && currentScreen != "chat") {
+                        // Offset the bar so it doesn't cover the TopAppBar (Menu button)
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 80.dp).zIndex(999f)) {
                             ActiveCallBar(
                                 callData = call,
-                                onExpand = { activeCallState.value = call.copy(isMinimized = false) }
+                                onExpand = { activeCallState.value = call.copy(isMinimized = false) },
+                                onHangup = {
+                                    SignalingManager.sendHangup(call.partnerId, userProfile?.id ?: "")
+                                    rtcManager.stopAll()
+                                    activeCallState.value = null
+                                },
+                                onAccept = acceptCall
                             )
                         }
                     }
@@ -524,8 +591,9 @@ fun MainContent(
 
                 // Global Call Overlay
                 activeCallState.value?.let { call ->
-                    ChatScreenCallOverlay(
-                        callData = call,
+                    if (!call.isMinimized) {
+                        ChatScreenCallOverlay(
+                            callData = call,
                         rtcManager = rtcManager,
                         currentUserId = userProfile?.id ?: "",
                         onHangup = {
@@ -551,10 +619,14 @@ fun MainContent(
                         onAccept = acceptCall,
                         onMinimize = { minimized ->
                             activeCallState.value = activeCallState.value?.copy(isMinimized = minimized)
+                            if (minimized) {
+                                currentScreen = "chat"
+                            }
                         }
                     )
                 }
             }
+        }
         }
     }
 }
@@ -638,11 +710,15 @@ fun DrawerContent(userProfile: Profile?, onNavigate: (String) -> Unit) {
 }
 
 @Composable
-fun ActiveCallBar(callData: ActiveCallData, onExpand: () -> Unit) {
+fun ActiveCallBar(
+    callData: ActiveCallData, 
+    onExpand: () -> Unit,
+    onHangup: () -> Unit = {},
+    onAccept: () -> Unit = {}
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
             .padding(horizontal = 8.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable { onExpand() },
@@ -650,32 +726,49 @@ fun ActiveCallBar(callData: ActiveCallData, onExpand: () -> Unit) {
         tonalElevation = 8.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "LLAMADA CON ${callData.partnerName.uppercase()}",
                     color = Color.White,
-                    fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
+                    fontSize = 11.sp,
                     letterSpacing = 1.sp
                 )
+                Text(
+                    if (callData.status == "incoming") "LLAMADA ENTRANTE" else "EN CURSO - TOCA PARA VOLVER",
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
-            Text(
-                "TOCA PARA VOLVER",
-                color = Color.White.copy(alpha = 0.8f),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold
-            )
+            
+            // Action Buttons on the Bar
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (callData.status == "incoming") {
+                    IconButton(
+                        onClick = onAccept,
+                        modifier = Modifier.size(36.dp).background(Color.White.copy(alpha = 0.2f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = "Accept", tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                }
+                IconButton(
+                    onClick = onHangup,
+                    modifier = Modifier.size(36.dp).background(Color.Red.copy(alpha = 0.3f), CircleShape)
+                ) {
+                    Icon(Icons.Default.CallEnd, contentDescription = "Hangup", tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+            }
         }
     }
 }
