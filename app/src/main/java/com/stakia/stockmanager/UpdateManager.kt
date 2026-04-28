@@ -86,7 +86,7 @@ object UpdateManager {
         
         val client = HttpClient()
         try {
-            val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk")
+            val file = File(context.cacheDir, "update.apk")
             if (file.exists()) file.delete()
 
             val response = client.get(APK_URL) {

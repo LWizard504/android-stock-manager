@@ -14,8 +14,8 @@ android {
         applicationId = "com.stakia.stockmanager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "9.3"
+        versionCode = 100
+        versionName = "100.0"
         vectorDrawables {
             useSupportLibrary = true
         }
