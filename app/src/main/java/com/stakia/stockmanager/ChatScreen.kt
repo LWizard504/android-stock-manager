@@ -318,27 +318,19 @@ fun ChatListScreen(
                     filter { Profile::id neq currentUserId }
                 }.decodeList<Profile>()
                 
-                val profilesWithMessages = fetchedProfiles.map { profile ->
-                    try {
-                        val messages = SupabaseManager.client.postgrest.from("chat_messages").select {
-                            filter {
-                                or {
-                                    and { eq("sender_id", currentUserId); eq("recipient_id", profile.id) }
-                                    and { eq("sender_id", profile.id); eq("recipient_id", currentUserId) }
-                                }
-                            }
-                            order("created_at", Order.DESCENDING)
-                            limit(1)
-                        }.decodeList<ChatMessage>()
-                        
-                        val lastMsg = messages.firstOrNull()
-                        profile.copy(
-                            last_message = lastMsg?.content ?: "Canal seguro listo",
-                            last_message_at = lastMsg?.created_at
-                        )
-                    } catch (e: Exception) { profile }
+            if (fetchedProfiles.isNotEmpty()) {
+                SignalingManager.fetchRecentChats(currentUserId) { lastMsgs ->
+                    scope.launch(Dispatchers.Main) {
+                        val profilesWithMessages = fetchedProfiles.map { profile ->
+                            val lastMsg = lastMsgs[profile.id]
+                            profile.copy(
+                                last_message = lastMsg?.content ?: "Canal seguro listo",
+                                last_message_at = lastMsg?.created_at
+                            )
+                        }
+                        profiles = profilesWithMessages.sortedByDescending { it.last_message_at }
+                    }
                 }
-                profiles = profilesWithMessages.sortedByDescending { it.last_message_at }
                 
                 // Real-time updates for last message in the list
                 val channel = SupabaseManager.client.realtime.channel("chat_list")
@@ -355,6 +347,7 @@ fun ChatListScreen(
                     }
                 }
                 channel.subscribe()
+            }
             } else {
                 callLogs = SupabaseManager.client.postgrest.from("call_logs").select {
                     filter {

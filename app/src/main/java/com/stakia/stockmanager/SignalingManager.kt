@@ -237,4 +237,32 @@ object SignalingManager {
             }
         })
     }
+
+    fun fetchRecentChats(
+        userId: String, 
+        onResult: (Map<String, ChatMessage>) -> Unit
+    ) {
+        val url = "$SERVER_URL/get-recent-chats?userId=$userId"
+        val request = okhttp3.Request.Builder().url(url).build()
+        val client = okhttp3.OkHttpClient()
+        
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                onResult(emptyMap())
+            }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val body = response.body?.string()
+                if (body != null) {
+                    try {
+                        val map = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<Map<String, ChatMessage>>(body)
+                        onResult(map)
+                    } catch (e: Exception) {
+                        onResult(emptyMap())
+                    }
+                } else {
+                    onResult(emptyMap())
+                }
+            }
+        })
+    }
 }
