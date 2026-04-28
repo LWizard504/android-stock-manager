@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 
 object UpdateManager {
     // Configura aquí la URL de tu repositorio
-    private const val REPO_URL = "https://raw.githubusercontent.com/LWizard504/Stock-Manager/main/apk"
+    private const val REPO_URL = "https://raw.githubusercontent.com/LWizard504/android-stock-manager/main/APK"
     private const val VERSION_FILE_URL = "$REPO_URL/version.txt"
     private const val APK_URL = "$REPO_URL/app-release.apk"
 
