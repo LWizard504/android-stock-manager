@@ -479,7 +479,9 @@ fun MainContent(
                 }
             },
             onHangup = { data ->
-                val fromId = data.optString("from")
+                val fromObj = data.optJSONObject("from")
+                val fromId = fromObj?.optString("id") ?: data.optString("from", "")
+                
                 if (activeCallState.value?.partnerId == fromId) {
                     rtcManager.stopAll()
                     activeCallState.value = null

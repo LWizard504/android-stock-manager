@@ -152,10 +152,14 @@ object SignalingManager {
         socket?.emit("signal", message)
     }
 
-    fun sendHangup(to: String, from: String, isGroup: Boolean = false, groupId: String? = null) {
+    fun sendHangup(to: String, fromId: String, fromName: String = "User", isGroup: Boolean = false, groupId: String? = null) {
+        val fromObj = JSONObject().apply {
+            put("id", fromId)
+            put("name", fromName)
+        }
         val data = JSONObject()
         data.put("to", to)
-        data.put("from", from)
+        data.put("from", fromObj)
         data.put("isGroup", isGroup)
         if (groupId != null) data.put("groupId", groupId)
         socket?.emit("hangup", data)
