@@ -123,8 +123,7 @@ object UpdateManager {
 
     private fun installApk(context: Context, file: File) {
         try {
-            // Usar BuildConfig.APPLICATION_ID para asegurar que coincide con el manifest
-            val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
+            val authority = "com.stakia.stockmanager.fileprovider"
             val uri = FileProvider.getUriForFile(context, authority, file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
