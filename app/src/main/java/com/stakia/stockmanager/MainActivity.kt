@@ -523,10 +523,25 @@ fun MainContent(
         Scaffold(
             containerColor = Color.Transparent
         ) { padding ->
-            // Check for updates globally
-            UpdateManager.CheckForUpdates(currentVersion = BuildConfig.VERSION_NAME, context = context)
+            // Update UI handling
+            if (UpdateManager.isDownloading) {
+                UpdateScreen()
+                // Launch download if just started
+                LaunchedEffect(Unit) {
+                    UpdateManager.downloadAndInstall(context)
+                }
+            } else {
+                // Check for updates globally
+                UpdateManager.CheckForUpdates(
+                    currentVersion = BuildConfig.VERSION_NAME, 
+                    context = context,
+                    onUpdateFound = {
+                        // This will trigger isDownloading = true in the next recomposition
+                        UpdateManager.isDownloading = true
+                    }
+                )
 
-            Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
                 if (!isInPip) {
                     AppBackground(selectedBackground)
                 }
