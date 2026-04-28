@@ -30,8 +30,13 @@ class CallActionReceiver : BroadcastReceiver() {
             context.startActivity(mainIntent)
         } else if (action == "ACTION_DECLINE_CALL") {
             Log.d("CallAction", "Call declined from notification")
-            // Here you could send a signal back to Supabase to reject the call
-            // For now we just close the notification
+            val mainIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("notification_type", "call")
+                putExtra("sender_id", senderId)
+                putExtra("action", "decline")
+            }
+            context.startActivity(mainIntent)
         }
     }
 

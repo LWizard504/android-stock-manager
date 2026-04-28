@@ -101,7 +101,15 @@ class MainActivity : ComponentActivity() {
             initialOfferState.value = intent.getStringExtra("offer")
             initialSenderNameState.value = intent.getStringExtra("sender_name")
             initialSenderAvatarState.value = intent.getStringExtra("sender_avatar")
-            autoAcceptState.value = intent.getStringExtra("action") == "accept"
+            val action = intent.getStringExtra("action")
+            autoAcceptState.value = action == "accept"
+            
+            // Handle explicit decline
+            if (action == "decline") {
+                val senderId = intent.getStringExtra("sender_id") ?: ""
+                val currentUserId = SupabaseManager.client.auth.currentUserOrNull()?.id ?: ""
+                SignalingManager.sendHangup(senderId, currentUserId)
+            }
         }
     }
 
@@ -149,6 +157,7 @@ fun MainContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
+    var autoAcceptTriggered by remember { mutableStateOf(false) }
     var userProfile by remember { mutableStateOf<Profile?>(null) }
     val activeCallState = remember { mutableStateOf<ActiveCallData?>(null) }
     val onlineUsersState = remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -175,6 +184,10 @@ fun MainContent(
     // Sync with activity
     LaunchedEffect(activeCallState.value) {
         onCallStateChanged(activeCallState.value)
+        // Reset auto-accept trigger when a new incoming call is detected
+        if (activeCallState.value?.status == "incoming") {
+            autoAcceptTriggered = false
+        }
     }
 
     // Call Service Lifecycle
@@ -255,6 +268,12 @@ fun MainContent(
                                         put("type", "answer")
                                         put("sdp", answer.description)
                                     }
+                                    
+                                    val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                                    audioManager.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                                    audioManager.isMicrophoneMute = false
+                                    audioManager.isSpeakerphoneOn = call.type == "video"
+                                    
                                     SignalingManager.sendSignal(
                                         to = call.partnerId,
                                         fromId = userProfile?.id ?: "",
@@ -274,7 +293,6 @@ fun MainContent(
         }
     }
 
-    var autoAcceptTriggered by remember { mutableStateOf(false) }
     LaunchedEffect(activeCallState.value, autoAccept) {
         if (autoAccept && activeCallState.value?.status == "incoming" && !autoAcceptTriggered) {
             autoAcceptTriggered = true

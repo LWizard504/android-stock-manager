@@ -67,8 +67,10 @@ class WebRTCManager(private val context: Context) {
     }
 
     fun startLocalStreaming(isVideo: Boolean) {
-        audioManager.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
-        audioManager.isSpeakerphoneOn = isVideo
+        val am = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+        am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+        am.isMicrophoneMute = false
+        am.isSpeakerphoneOn = isVideo
         
         val factory = ensureFactory()
         val audioSource = factory.createAudioSource(MediaConstraints())
