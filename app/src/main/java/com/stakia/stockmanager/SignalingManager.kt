@@ -207,4 +207,34 @@ object SignalingManager {
         }
         socket?.emit("send-message", data)
     }
+
+    fun fetchHistory(
+        chatId: String, 
+        userId: String, 
+        isGroup: Boolean, 
+        onResult: (List<ChatMessage>) -> Unit
+    ) {
+        val url = "$SERVER_URL/get-history?chatId=$chatId&userId=$userId&isGroup=$isGroup"
+        val request = okhttp3.Request.Builder().url(url).build()
+        val client = okhttp3.OkHttpClient()
+        
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                onResult(emptyList())
+            }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val body = response.body?.string()
+                if (body != null) {
+                    try {
+                        val list = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<List<ChatMessage>>(body)
+                        onResult(list)
+                    } catch (e: Exception) {
+                        onResult(emptyList())
+                    }
+                } else {
+                    onResult(emptyList())
+                }
+            }
+        })
+    }
 }

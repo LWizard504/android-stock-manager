@@ -29,14 +29,14 @@ data class ChatGroup(
 
 @Serializable
 data class ChatMessage(
-    val id: String = UUID.randomUUID().toString(),
-    val sender_id: String = "",
-    val content: String = "",
-    val created_at: String = java.time.Instant.now().toString(),
+    val id: String? = null,
+    val sender_id: String? = null,
+    val content: String? = null,
+    val created_at: String? = null,
     val recipient_id: String? = null,
     val group_id: String? = null,
     val file_url: String? = null,
-    val file_type: String? = null, // image, audio, video, file, sticker
+    val file_type: String? = null,
     val reply_to_id: String? = null,
     val sender_name: String? = null,
     val sender_avatar: String? = null,
@@ -75,7 +75,8 @@ data class ActiveCallData(
     val isGroup: Boolean = false,
     val groupId: String? = null,
     var logId: String? = null,
-    var isMinimized: Boolean = false
+    var isMinimized: Boolean = false,
+    var connectedAt: Long? = null
 )
 
 data class UserPresence(

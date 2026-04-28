@@ -161,6 +161,7 @@ fun MainContent(
     var userProfile by remember { mutableStateOf<Profile?>(null) }
     val activeCallState = remember { mutableStateOf<ActiveCallData?>(null) }
     val onlineUsersState = remember { mutableStateOf<Set<String>>(emptySet()) }
+    val presencesState = remember { mutableStateMapOf<String, UserPresence>() }
     val rtcManager = remember { WebRTCManager(context) }
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     
@@ -268,6 +269,7 @@ fun MainContent(
                                         put("type", "answer")
                                         put("sdp", answer.description)
                                     }
+                                    activeCallState.value = call.copy(status = "connected", connectedAt = System.currentTimeMillis())
                                     
                                     val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
                                     audioManager.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
@@ -415,6 +417,16 @@ fun MainContent(
             },
             onPresenceChange = { users ->
                 onlineUsersState.value = users
+            },
+            onTyping = { fromId, name, isTyping, to ->
+                if (to == currentUserId || to.isEmpty()) {
+                    presencesState[fromId] = presencesState.getOrDefault(fromId, UserPresence()).copy(isTyping = isTyping, name = name)
+                }
+            },
+            onRecording = { fromId, name, isRecording, to ->
+                if (to == currentUserId || to.isEmpty()) {
+                    presencesState[fromId] = presencesState.getOrDefault(fromId, UserPresence()).copy(isRecording = isRecording, name = name)
+                }
             }
         )
     }
@@ -446,41 +458,6 @@ fun MainContent(
                     AppBackground(selectedBackground)
                 }
                 
-                // Active Call Bar (Minimized)
-                activeCallState.value?.let { call ->
-                    if (call.isMinimized && !isInPip) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .statusBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF22C55E))
-                                .clickable { activeCallState.value = call.copy(isMinimized = false) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                                .zIndex(10f)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    if (call.type == "video") Icons.Default.Videocam else Icons.Default.Call,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    "Llamada activa: ${call.partnerName}",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-
                 Box(modifier = Modifier.padding(if (isInPip) PaddingValues(0.dp) else padding)) {
                     if (!isInPip) {
                         when (currentScreen) {
@@ -505,6 +482,7 @@ fun MainContent(
                                 activeCall = activeCallState.value,
                                 onActiveCallChange = { call -> activeCallState.value = call },
                                 onlineUsers = onlineUsersState.value,
+                                presences = presencesState,
                                 rtcManager = rtcManager
                             )
                             "status" -> StatusScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
@@ -519,6 +497,18 @@ fun MainContent(
                     }
                 }
 
+                // Active Call Bar (Minimized) - Floating on top
+                activeCallState.value?.let { call ->
+                    if (call.isMinimized && !isInPip && call.status == "connected") {
+                        Box(modifier = Modifier.fillMaxWidth().zIndex(100f)) {
+                            ActiveCallBar(
+                                callData = call,
+                                onExpand = { activeCallState.value = call.copy(isMinimized = false) }
+                            )
+                        }
+                    }
+                }
+
                 // Global Call Overlay
                 activeCallState.value?.let { call ->
                     ChatScreenCallOverlay(
@@ -527,11 +517,16 @@ fun MainContent(
                         currentUserId = userProfile?.id ?: "",
                         onHangup = {
                             val logId = call.logId
+                            val duration = if (call.connectedAt != null) {
+                                ((System.currentTimeMillis() - call.connectedAt!!) / 1000).toInt()
+                            } else 0
+                            
                             if (logId != null) {
                                 scope.launch(Dispatchers.IO) {
                                     try {
                                         SupabaseManager.client.postgrest.from("call_logs").update({
-                                            set("status", "completed")
+                                            set("status", if (duration > 0) "completed" else "cancelled")
+                                            set("duration", duration)
                                         }) { filter { eq("id", logId) } }
                                     } catch (_: Exception) {}
                                 }
@@ -625,6 +620,49 @@ fun DrawerContent(userProfile: Profile?, onNavigate: (String) -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ActiveCallBar(callData: ActiveCallData, onExpand: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onExpand() },
+        color = Color(0xFF22C55E),
+        tonalElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "LLAMADA CON ${callData.partnerName.uppercase()}",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp
+                )
+            }
+            Text(
+                "TOCA PARA VOLVER",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

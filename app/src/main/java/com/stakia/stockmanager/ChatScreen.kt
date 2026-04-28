@@ -87,6 +87,7 @@ fun ChatScreen(
     activeCall: ActiveCallData? = null,
     onActiveCallChange: (ActiveCallData?) -> Unit,
     onlineUsers: Set<String> = emptySet(),
+    presences: Map<String, UserPresence> = emptyMap(),
     rtcManager: WebRTCManager
 ) {
     var currentView by remember { mutableStateOf(if (initialChatId != null) "conversation" else "list") }
@@ -186,24 +187,33 @@ fun ChatScreen(
 
     LaunchedEffect(Unit) {
         try {
-            val fetchedGroups = SupabaseManager.client.postgrest.from("chat_groups").select {
-                filter {
-                    eq("chat_group_members.user_id", currentUserId)
-                }
-            }.decodeList<ChatGroup>()
+            // Improved group fetching: Get memberships first
+            val memberships = SupabaseManager.client.postgrest.from("chat_group_members").select {
+                filter { eq("user_id", currentUserId) }
+            }.decodeList<JsonObject>()
             
-            groups = fetchedGroups.map { group ->
-                try {
-                    val lastMsg = SupabaseManager.client.postgrest.from("chat_messages").select {
-                        filter { eq("group_id", group.id) }
-                        order("created_at", Order.DESCENDING)
-                        limit(1)
-                    }.decodeSingleOrNull<ChatMessage>()
-                    group.copy(
-                        last_message = lastMsg?.content ?: "No messages yet",
-                        last_message_at = lastMsg?.created_at
-                    )
-                } catch (e: Exception) { group }
+            val groupIds = memberships.mapNotNull { it["group_id"]?.jsonPrimitive?.contentOrNull }
+            
+            if (groupIds.isNotEmpty()) {
+                val fetchedGroups = SupabaseManager.client.postgrest.from("chat_groups").select {
+                    filter {
+                        isIn("id", groupIds)
+                    }
+                }.decodeList<ChatGroup>()
+                
+                groups = fetchedGroups.map { group ->
+                    try {
+                        val lastMsg = SupabaseManager.client.postgrest.from("chat_messages").select {
+                            filter { eq("group_id", group.id) }
+                            order("created_at", Order.DESCENDING)
+                            limit(1)
+                        }.decodeSingleOrNull<ChatMessage>()
+                        group.copy(
+                            last_message = lastMsg?.content ?: "No messages yet",
+                            last_message_at = lastMsg?.created_at
+                        )
+                    } catch (e: Exception) { group }
+                }
             }
             
             if (initialCallType != null && initialOffer != null && initialChatId != null) {
@@ -232,6 +242,7 @@ fun ChatScreen(
                     pureBlack = pureBlack,
                     accentYellow = accentYellow,
                     onlineUsers = onlineUsers,
+                    presences = presences,
                     groups = groups,
                     initialChatId = initialChatId,
                     userProfile = userProfile,
@@ -253,10 +264,12 @@ fun ChatScreen(
                         group = selectedGroup,
                         onBack = { selectedProfile = null; selectedGroup = null; currentView = "list" },
                         currentUserId = currentUserId,
+                        userProfile = userProfile,
                         rtcManager = rtcManager,
                         activeCall = activeCall,
                         onActiveCallChange = onActiveCallChange,
-                        onInitiateCall = { id, video, name, avatar -> initiateCall(id, video, name, avatar) }
+                        onInitiateCall = { id, video, name, avatar -> initiateCall(id, video, name, avatar) },
+                        presence = presences[selectedProfile?.id ?: ""]
                     )
                 }
                 "create_group" -> {
@@ -284,6 +297,7 @@ fun ChatListScreen(
     pureBlack: Color,
     accentYellow: Color,
     onlineUsers: Set<String>,
+    presences: Map<String, UserPresence> = emptyMap(),
     groups: List<ChatGroup>,
     initialChatId: String? = null,
     onCreateGroup: () -> Unit,
@@ -306,7 +320,7 @@ fun ChatListScreen(
                 
                 val profilesWithMessages = fetchedProfiles.map { profile ->
                     try {
-                        val lastMsg = SupabaseManager.client.postgrest.from("chat_messages").select {
+                        val messages = SupabaseManager.client.postgrest.from("chat_messages").select {
                             filter {
                                 or {
                                     and { eq("sender_id", currentUserId); eq("recipient_id", profile.id) }
@@ -315,21 +329,32 @@ fun ChatListScreen(
                             }
                             order("created_at", Order.DESCENDING)
                             limit(1)
-                        }.decodeSingleOrNull<ChatMessage>()
+                        }.decodeList<ChatMessage>()
                         
+                        val lastMsg = messages.firstOrNull()
                         profile.copy(
-                            last_message = lastMsg?.content ?: "Secure tunnel ready",
+                            last_message = lastMsg?.content ?: "Canal seguro listo",
                             last_message_at = lastMsg?.created_at
                         )
                     } catch (e: Exception) { profile }
                 }
-                profiles = profilesWithMessages
+                profiles = profilesWithMessages.sortedByDescending { it.last_message_at }
                 
-                if (initialChatId != null) {
-                    profiles.find { it.id == initialChatId }?.let {
-                        onProfileClick(it)
+                // Real-time updates for last message in the list
+                val channel = SupabaseManager.client.realtime.channel("chat_list")
+                val broadcastFlow = channel.broadcastFlow<ChatMessage>("new_message")
+                scope.launch {
+                    broadcastFlow.collect { msg ->
+                        if (msg.recipient_id == currentUserId || msg.sender_id == currentUserId) {
+                            val partnerId = if (msg.sender_id == currentUserId) msg.recipient_id else msg.sender_id
+                            profiles = profiles.map { p ->
+                                if (p.id == partnerId) p.copy(last_message = msg.content, last_message_at = msg.created_at)
+                                else p
+                            }.sortedByDescending { it.last_message_at }
+                        }
                     }
                 }
+                channel.subscribe()
             } else {
                 callLogs = SupabaseManager.client.postgrest.from("call_logs").select {
                     filter {
@@ -380,7 +405,12 @@ fun ChatListScreen(
                     
                     item { SectionHeader("CHATS DIRECTOS", profiles.size.toString()) }
                     items(profiles) { profile ->
-                        UserItem(profile, isOnline = onlineUsers.contains(profile.id), onClick = { onProfileClick(profile) })
+                        UserItem(
+                            profile = profile, 
+                            isOnline = onlineUsers.contains(profile.id), 
+                            presence = presences[profile.id],
+                            onClick = { onProfileClick(profile) }
+                        )
                     }
                 } else {
                     items(callLogs) { log ->
@@ -467,7 +497,7 @@ fun GroupItem(group: ChatGroup, onClick: () -> Unit) {
 }
 
 @Composable
-fun UserItem(profile: Profile, isOnline: Boolean, onClick: () -> Unit) {
+fun UserItem(profile: Profile, isOnline: Boolean, presence: UserPresence? = null, onClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(52.dp)) {
             Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF1A1A1A), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { 
@@ -485,9 +515,44 @@ fun UserItem(profile: Profile, isOnline: Boolean, onClick: () -> Unit) {
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) { 
             Text(profile.full_name ?: profile.first_name ?: "Unknown User", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
-            Text(profile.last_message ?: "Canal seguro listo", color = Color.Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) 
+            
+            if (presence?.isTyping == true) {
+                TypingAnimation(Color(0xFF22C55E))
+            } else if (presence?.isRecording == true) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Mic, contentDescription = null, tint = Color.Red, modifier = Modifier.size(12.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Grabando audio...", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Text(profile.last_message ?: "Canal seguro listo", color = Color.Gray, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) 
+            }
         }
         Text(profile.last_message_at?.takeLast(5) ?: "", color = Color.Gray, fontSize = 10.sp)
+    }
+}
+
+@Composable
+fun TypingAnimation(color: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "typing")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing), RepeatMode.Reverse),
+        label = "alpha"
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 2.dp)
+                    .size(4.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = if (index == 0) dotAlpha else 1f))
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text("Escribiendo...", color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -498,6 +563,12 @@ fun CallLogItem(log: CallLog, currentUserId: String, accentColor: Color, onClick
     val partnerName = if (isIncoming) (log.caller_name ?: "Unknown") else (log.receiver_name ?: "Unknown")
     val partnerAvatar = if (isIncoming) log.caller_avatar else log.receiver_avatar
     
+    val durationText = if (log.duration > 0) {
+        val mins = log.duration / 60
+        val secs = log.duration % 60
+        if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+    } else ""
+
     Row(modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF111111)).border(1.dp, Color(0xFF1A1A1A), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { 
             if (!partnerAvatar.isNullOrBlank()) {
@@ -513,12 +584,15 @@ fun CallLogItem(log: CallLog, currentUserId: String, accentColor: Color, onClick
                 Icon(
                     imageVector = if (isIncoming) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
                     contentDescription = null,
-                    tint = if (isMissed) Color(0xFFEF4444) else Color.White,
+                    tint = if (isMissed) Color(0xFFEF4444) else Color.Gray,
                     modifier = Modifier.size(12.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    if (isMissed) "Perdida" else if (log.status == "incoming") "Recibida" else "Realizada",
+                    text = buildString {
+                        append(if (isMissed) "Perdida" else if (isIncoming) "Recibida" else "Realizada")
+                        if (durationText.isNotEmpty()) append(" • $durationText")
+                    },
                     color = Color.Gray,
                     fontSize = 12.sp
                 )
@@ -545,12 +619,16 @@ fun ConversationScreen(
     group: ChatGroup?,
     onBack: () -> Unit,
     currentUserId: String,
+    userProfile: Profile?,
     rtcManager: WebRTCManager,
     activeCall: ActiveCallData?,
     onActiveCallChange: (ActiveCallData?) -> Unit,
-    onInitiateCall: (String, Boolean, String, String?) -> Unit
+    onInitiateCall: (String, Boolean, String, String?) -> Unit,
+    presence: UserPresence? = null
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val neuralJson = remember { Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true } }
     var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var text by remember { mutableStateOf("") }
     val accentYellow = Color(0xFFEAB308)
@@ -559,41 +637,61 @@ fun ConversationScreen(
     val chatId = profile?.id ?: "group:${group?.id}"
     val title = profile?.full_name ?: group?.name ?: "Neural Node"
     val avatar = profile?.avatar_url ?: group?.icon_url
-
-    LaunchedEffect(chatId) {
-        try {
-            messages = if (group != null) {
-                SupabaseManager.client.postgrest.from("chat_messages").select {
-                    filter { eq("group_id", group.id) }
-                    order("created_at", Order.DESCENDING)
-                    limit(50)
-                }.decodeList<ChatMessage>().reversed()
-            } else {
-                SupabaseManager.client.postgrest.from("chat_messages").select {
-                    filter {
-                        or {
-                            and { eq("sender_id", currentUserId); eq("recipient_id", profile!!.id) }
-                            and { eq("sender_id", profile!!.id); eq("recipient_id", currentUserId) }
-                        }
-                    }
-                    order("created_at", Order.DESCENDING)
-                    limit(50)
-                }.decodeList<ChatMessage>().reversed()
-            }
-        } catch (e: Exception) { e.printStackTrace() }
-
-        // Subscribe to real-time messages
-        val channel = SupabaseManager.client.realtime.channel("chat:$chatId")
-        val broadcastFlow = channel.broadcastFlow<ChatMessage>("new_message")
-        
-        scope.launch {
-            broadcastFlow.collect { msg ->
-                if (msg.recipient_id == currentUserId || msg.group_id == group?.id) {
-                    messages = messages + msg
-                }
+    
+    // Typing Signal Logic
+    LaunchedEffect(text) {
+        if (profile != null) {
+            SignalingManager.sendTyping(profile.id, currentUserId, userProfile?.full_name ?: "User", text.isNotBlank())
+            if (text.isNotBlank()) {
+                delay(3000)
+                SignalingManager.sendTyping(profile.id, currentUserId, userProfile?.full_name ?: "User", false)
             }
         }
-        channel.subscribe()
+    }
+
+    LaunchedEffect(chatId) {
+        if (chatId.isEmpty()) return@LaunchedEffect
+        
+        try {
+            android.util.Log.d("ChatScreen", "Starting bridge fetch for $chatId")
+            
+            val isGroupChat = group != null
+            val targetId = if (isGroupChat) group!!.id else profile!!.id
+            
+            SignalingManager.fetchHistory(targetId, currentUserId, isGroupChat) { fetched ->
+                scope.launch(Dispatchers.Main) {
+                    messages = fetched.reversed()
+                    Toast.makeText(context, "Neural Link: ${fetched.size} mensajes recuperados (vía Bridge)", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) { 
+            android.util.Log.e("ChatScreen", "Fatal Bridge Fetch Error", e)
+        }
+
+        // Listen to socket messages instead of Supabase Realtime for instant delivery
+        SignalingManager.onNewMessageListener = { data ->
+            try {
+                val msg = neuralJson.decodeFromString<ChatMessage>(data.toString())
+                // Only add if it belongs to this conversation and is not from me (already added locally)
+                val isRelevant = if (group != null) {
+                    msg.group_id == group.id
+                } else {
+                    (msg.sender_id == profile?.id && msg.recipient_id == currentUserId)
+                }
+                
+                if (isRelevant && msg.sender_id != currentUserId) {
+                    messages = (messages + msg).distinctBy { it.id }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ChatScreen", "Error decoding message", e)
+            }
+        }
+    }
+
+    DisposableEffect(chatId) {
+        onDispose {
+            SignalingManager.onNewMessageListener = null
+        }
     }
 
     Scaffold(
@@ -612,7 +710,13 @@ fun ConversationScreen(
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                    Text(if (profile != null) "Direct Link" else "Neural Cluster", color = Color.Gray, fontSize = 10.sp)
+                    if (presence?.isTyping == true) {
+                        Text("Escribiendo...", color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    } else if (presence?.isRecording == true) {
+                        Text("Grabando audio...", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Text(if (profile != null) "Direct Link" else "Neural Cluster", color = Color.Gray, fontSize = 10.sp)
+                    }
                 }
                 IconButton(
                     onClick = { 
@@ -658,26 +762,36 @@ fun ConversationScreen(
                 IconButton(
                     onClick = {
                         if (text.isNotBlank()) {
+                            val isGroup = group != null
+                            val targetId = if (isGroup) group!!.id else (profile?.id ?: "")
+                            
                             val newMsg = ChatMessage(
                                 sender_id = currentUserId,
-                                recipient_id = profile?.id,
-                                group_id = group?.id,
+                                recipient_id = if (isGroup) null else targetId,
+                                group_id = if (isGroup) targetId else null,
                                 content = text,
-                                created_at = java.time.Instant.now().toString()
+                                created_at = java.time.Instant.now().toString(),
+                                sender_name = userProfile?.full_name ?: "Neural User"
                             )
+                            
+                            // Update UI immediately
                             messages = messages + newMsg
+                            val messageText = text
                             text = ""
+                            
                             scope.launch {
                                 try {
-                                    SupabaseManager.client.postgrest.from("chat_messages").insert(newMsg)
-                                    // Send signal
+                                    // Let the API handle persistence to avoid RLS issues and double-writes
                                     SignalingManager.sendMessage(
-                                        to = profile?.id ?: "group:${group?.id}",
-                                        content = newMsg.content,
-                                        senderName = "Me",
-                                        senderAvatar = null
+                                        to = targetId,
+                                        content = messageText,
+                                        senderName = userProfile?.full_name ?: "User",
+                                        senderAvatar = userProfile?.avatar_url,
+                                        isGroup = isGroup
                                     )
-                                } catch (e: Exception) { e.printStackTrace() }
+                                } catch (e: Exception) { 
+                                    android.util.Log.e("ChatScreen", "Send Error", e)
+                                }
                             }
                         }
                     },
@@ -707,9 +821,9 @@ fun MessageBubble(msg: ChatMessage, currentUserId: String) {
                 .padding(12.dp)
         ) {
             Column {
-                Text(msg.content, color = Color.White, fontSize = 14.sp)
+                Text(msg.content ?: "", color = Color.White, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(msg.created_at.takeLast(5), color = Color.Gray, fontSize = 9.sp, modifier = Modifier.align(Alignment.End))
+                Text(msg.created_at?.takeLast(5) ?: "", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.align(Alignment.End))
             }
         }
     }
@@ -726,6 +840,7 @@ fun CreateGroupScreen(
     var groupName by remember { mutableStateOf("") }
     val selectedProfiles = remember { mutableStateListOf<String>() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val accentYellow = Color(0xFFEAB308)
     val pureBlack = Color(0xFF000000)
 
@@ -784,11 +899,26 @@ fun CreateGroupScreen(
                     if (groupName.isNotBlank() && selectedProfiles.isNotEmpty()) {
                         scope.launch {
                             try {
-                                val newGroup = ChatGroup(id = UUID.randomUUID().toString(), name = groupName)
+                                val groupId = UUID.randomUUID().toString()
+                                val newGroup = ChatGroup(id = groupId, name = groupName)
                                 SupabaseManager.client.postgrest.from("chat_groups").insert(newGroup)
-                                // Add members...
+                                
+                                // Add all selected members + current user
+                                val membersToAdd = (selectedProfiles + currentUserId).distinct()
+                                val memberObjects = membersToAdd.map { uid ->
+                                    buildJsonObject {
+                                        put("group_id", groupId)
+                                        put("user_id", uid)
+                                    }
+                                }
+                                SupabaseManager.client.postgrest.from("chat_group_members").insert(memberObjects)
+                                
                                 onGroupCreated()
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) { 
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }
                     }
                 },
