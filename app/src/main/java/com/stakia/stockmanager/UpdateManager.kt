@@ -29,6 +29,7 @@ object UpdateManager {
     var isDownloading by mutableStateOf(false)
     var downloadInfo by mutableStateOf("Preparando descarga...")
     
+    var latestVersion by mutableStateOf("")
     private var isSearchingManual = mutableStateOf(false)
 
     @Composable
@@ -43,7 +44,7 @@ object UpdateManager {
             if (triggerCheck >= 0 || manualCheck) {
                 val versionFromServer = fetchLatestVersion()
                 if (versionFromServer != null && isNewerVersion(currentVersion, versionFromServer)) {
-                    latestVersion = versionFromServer
+                    UpdateManager.latestVersion = versionFromServer
                     // Actualización automática: avisamos a la UI inmediatamente
                     onUpdateFound()
                 } else if (manualCheck) {

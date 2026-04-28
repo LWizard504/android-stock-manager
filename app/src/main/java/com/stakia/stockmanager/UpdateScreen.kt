@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -79,6 +80,15 @@ fun UpdateScreen() {
                 fontWeight = FontWeight.Black,
                 letterSpacing = 2.sp
             )
+            
+            if (UpdateManager.latestVersion.isNotEmpty()) {
+                Text(
+                    "Versión detectada: v${UpdateManager.latestVersion}",
+                    color = saasYellow,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             Text(
                 "Sincronizando con el servidor central...",
@@ -87,7 +97,24 @@ fun UpdateScreen() {
                 modifier = Modifier.padding(top = 8.dp)
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            // Bouncing Animation for Download
+            val bounce by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = -20f,
+                animationSpec = infiniteRepeatable(tween(600, easing = LinearEasing), RepeatMode.Reverse),
+                label = "bounce"
+            )
+
+            Icon(
+                Icons.Default.CloudDownload,
+                contentDescription = null,
+                tint = saasYellow,
+                modifier = Modifier.size(40.dp).offset(y = bounce.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Progress Bar Container
             Column(modifier = Modifier.fillMaxWidth()) {

@@ -48,7 +48,7 @@ class WebRTCManager(private val context: Context) {
 
             val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
             audioManager.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
-            audioManager.isSpeakerphoneOn = true 
+            // speakerphone will be set later based on call type
             
             val encoderFactory = DefaultVideoEncoderFactory(rootEglBase.eglBaseContext, true, true)
             val decoderFactory = DefaultVideoDecoderFactory(rootEglBase.eglBaseContext)

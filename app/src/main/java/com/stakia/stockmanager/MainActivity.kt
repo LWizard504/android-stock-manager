@@ -217,12 +217,112 @@ fun MainContent(
             prefs.edit().clear().apply()
         }
     }
-    val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
-    
-    val neuralJson = remember { Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true } }
 
+    val neuralJson = remember { Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true } }
     var autoAcceptTriggered by remember { mutableStateOf(false) }
     var userProfile by remember { mutableStateOf<Profile?>(null) }
+    
+    var permissionRequestTrigger by remember { mutableStateOf(false) }
+
+    fun acceptCall() {
+        val call = activeCallState.value
+        if (call != null) {
+            val hasCamera = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasAudio = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            
+            if (!hasCamera || !hasAudio) {
+                permissionRequestTrigger = true
+            } else {
+                scope.launch {
+                    try {
+                        val logId = call.logId
+                        if (logId != null) {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    SupabaseManager.client.postgrest.from("call_logs").update({
+                                        set("status", "connected")
+                                    }) { filter { eq("id", logId) } }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                        
+                        val currentUserId = userProfile?.id ?: SupabaseManager.client.auth.currentUserOrNull()?.id ?: ""
+                        val currentUserName = userProfile?.full_name ?: "Neural User"
+                        
+                        rtcManager.startLocalStreaming(call.type == "video")
+                        
+                        rtcManager.createPeerConnection(
+                            remoteUserId = call.partnerId,
+                            onIceCandidate = { candidate ->
+                                val candObj = JSONObject().apply {
+                                    put("sdpMid", candidate.sdpMid)
+                                    put("sdpMLineIndex", candidate.sdpMLineIndex)
+                                    put("candidate", candidate.sdp)
+                                }
+                                SignalingManager.sendSignal(
+                                    to = call.partnerId,
+                                    fromId = currentUserId,
+                                    fromName = currentUserName,
+                                    type = "candidate",
+                                    candidate = candObj
+                                )
+                            },
+                            onTrackAdded = { }
+                        )
+                        
+                        val offerSdp = call.offer?.get("sdp")?.jsonPrimitive?.content
+                        if (offerSdp != null) {
+                            rtcManager.setRemoteDescription(call.partnerId, SessionDescription(SessionDescription.Type.OFFER, offerSdp))
+                            rtcManager.processQueuedIceCandidates(call.partnerId)
+                            val answer = rtcManager.createAnswer(call.partnerId)
+                            if (answer != null) {
+                                rtcManager.setLocalDescription(call.partnerId, answer)
+                                val answerObj = JSONObject().apply {
+                                    put("type", "answer")
+                                    put("sdp", answer.description)
+                                }
+                                
+                                val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                                audioManager.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                                audioManager.isMicrophoneMute = false
+                                audioManager.isSpeakerphoneOn = call.type == "video"
+                                
+                                SignalingManager.sendSignal(
+                                    to = call.partnerId,
+                                    fromId = currentUserId,
+                                    fromName = currentUserName,
+                                    type = call.type,
+                                    answer = answerObj,
+                                    isGroup = call.isGroup,
+                                    groupId = call.groupId
+                                )
+                                activeCallState.value = call.copy(status = "connected", connectedAt = System.currentTimeMillis())
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+
+    val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        if (results.values.all { it }) {
+            scope.launch {
+                kotlinx.coroutines.delay(500)
+                acceptCall()
+            }
+        } else {
+            Toast.makeText(context, "Permisos necesarios para la llamada", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    LaunchedEffect(permissionRequestTrigger) {
+        if (permissionRequestTrigger) {
+            callPermissionLauncher.launch(arrayOf(android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO))
+            permissionRequestTrigger = false
+        }
+    }
 
     // Handle initial call from intent
     LaunchedEffect(initialOffer) {
@@ -266,89 +366,6 @@ fun MainContent(
                 action = "STOP_SERVICE"
             }
             context.startService(intent)
-        }
-    }
-
-
-
-    val acceptCall = remember(activeCallState.value, userProfile) {
-        {
-            val call = activeCallState.value
-            if (call != null) {
-                val hasCamera = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                val hasAudio = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                
-                if (!hasCamera || !hasAudio) {
-                    callPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
-                } else {
-                    scope.launch {
-                        try {
-                            val logId = call.logId
-                            if (logId != null) {
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        SupabaseManager.client.postgrest.from("call_logs").update({
-                                            set("status", "connected")
-                                        }) { filter { eq("id", logId) } }
-                                    } catch (_: Exception) {}
-                                }
-                            }
-                            
-                            rtcManager.startLocalStreaming(call.type == "video")
-                            
-                            rtcManager.createPeerConnection(
-                                remoteUserId = call.partnerId,
-                                onIceCandidate = { candidate ->
-                                    val candObj = JSONObject().apply {
-                                        put("sdpMid", candidate.sdpMid)
-                                        put("sdpMLineIndex", candidate.sdpMLineIndex)
-                                        put("candidate", candidate.sdp)
-                                    }
-                                    SignalingManager.sendSignal(
-                                        to = call.partnerId,
-                                        fromId = userProfile?.id ?: "",
-                                        fromName = userProfile?.full_name ?: "Me",
-                                        type = "candidate",
-                                        candidate = candObj
-                                    )
-                                },
-                                onTrackAdded = { }
-                            )
-                            
-                            val offerSdp = call.offer?.get("sdp")?.jsonPrimitive?.content
-                            if (offerSdp != null) {
-                                rtcManager.setRemoteDescription(call.partnerId, SessionDescription(SessionDescription.Type.OFFER, offerSdp))
-                                rtcManager.processQueuedIceCandidates(call.partnerId)
-                                val answer = rtcManager.createAnswer(call.partnerId)
-                                if (answer != null) {
-                                    rtcManager.setLocalDescription(call.partnerId, answer)
-                                    val answerObj = JSONObject().apply {
-                                        put("type", "answer")
-                                        put("sdp", answer.description)
-                                    }
-                                    activeCallState.value = call.copy(status = "connected", connectedAt = System.currentTimeMillis())
-                                    
-                                    val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                                    audioManager.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
-                                    audioManager.isMicrophoneMute = false
-                                    audioManager.isSpeakerphoneOn = call.type == "video"
-                                    
-                                    SignalingManager.sendSignal(
-                                        to = call.partnerId,
-                                        fromId = userProfile?.id ?: "",
-                                        fromName = userProfile?.full_name ?: "Me",
-                                        type = call.type,
-                                        answer = answerObj,
-                                        isGroup = call.isGroup,
-                                        groupId = call.groupId
-                                    )
-                                    activeCallState.value = call.copy(status = "connected")
-                                }
-                            }
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
         }
     }
 
@@ -600,7 +617,7 @@ fun MainContent(
                                     rtcManager.stopAll()
                                     activeCallState.value = null
                                 },
-                                onAccept = acceptCall
+                                onAccept = { acceptCall() }
                             )
                         }
                     }
@@ -633,7 +650,7 @@ fun MainContent(
                             rtcManager.stopAll()
                             activeCallState.value = null
                         },
-                        onAccept = acceptCall,
+                        onAccept = { acceptCall() },
                         onMinimize = { minimized ->
                             activeCallState.value = activeCallState.value?.copy(isMinimized = minimized)
                             if (minimized) {
