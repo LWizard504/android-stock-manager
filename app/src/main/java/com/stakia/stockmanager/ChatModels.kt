@@ -74,7 +74,8 @@ data class ActiveCallData(
     val partnerId: String = "",
     val isGroup: Boolean = false,
     val groupId: String? = null,
-    var logId: String? = null
+    var logId: String? = null,
+    var isMinimized: Boolean = false
 )
 
 data class UserPresence(

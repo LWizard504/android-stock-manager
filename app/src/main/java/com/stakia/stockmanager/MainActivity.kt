@@ -37,16 +37,96 @@ import org.json.JSONObject
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
 import android.widget.Toast
+import android.content.Intent
+import android.app.PictureInPictureParams
+import android.util.Rational
+import android.os.Build
+import android.app.ActivityManager
+import android.content.Context
 
 class MainActivity : ComponentActivity() {
+    private var isInPipMode = mutableStateOf(false)
+    private var currentActiveCall: ActiveCallData? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SupabaseManager.init(this)
+        
+        val type = intent.getStringExtra("notification_type")
+        val senderId = intent.getStringExtra("sender_id")
+        val callType = intent.getStringExtra("call_type")
+        val offer = intent.getStringExtra("offer")
+        val senderName = intent.getStringExtra("sender_name")
+        val senderAvatar = intent.getStringExtra("sender_avatar")
+        val action = intent.getStringExtra("action")
+
         setContent {
             MaterialTheme {
-                MainContent()
+                MainContent(
+                    initialChatId = if (type == "chat") senderId else null,
+                    initialCallType = if (type == "call") callType else null,
+                    initialOffer = if (type == "call") offer else null,
+                    initialSenderName = if (type == "call") senderName else null,
+                    initialSenderAvatar = if (type == "call") senderAvatar else null,
+                    autoAccept = action == "accept",
+                    onCallStateChanged = { call ->
+                        currentActiveCall = call
+                    }, 
+                    isInPip = isInPipMode.value
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        
+        val type = intent.getStringExtra("notification_type")
+        val senderId = intent.getStringExtra("sender_id")
+        val callType = intent.getStringExtra("call_type")
+        val offer = intent.getStringExtra("offer")
+        val senderName = intent.getStringExtra("sender_name")
+        val senderAvatar = intent.getStringExtra("sender_avatar")
+        val action = intent.getStringExtra("action")
+
+        setContent {
+            MaterialTheme {
+                MainContent(
+                    initialChatId = if (type == "chat") senderId else null,
+                    initialCallType = if (type == "call") callType else null,
+                    initialOffer = if (type == "call") offer else null,
+                    initialSenderName = if (type == "call") senderName else null,
+                    initialSenderAvatar = if (type == "call") senderAvatar else null,
+                    autoAccept = action == "accept",
+                    onCallStateChanged = { call ->
+                        currentActiveCall = call
+                    }, 
+                    isInPip = isInPipMode.value
+                )
+            }
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (currentActiveCall?.status == "connected" && currentActiveCall?.type == "video") {
+            enterPip()
+        }
+    }
+
+    private fun enterPip() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(9, 16))
+                .build()
+            enterPictureInPictureMode(params)
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPipMode.value = isInPictureInPictureMode
     }
 }
 
@@ -58,7 +138,10 @@ fun MainContent(
     initialCallType: String? = null,
     initialOffer: String? = null,
     initialSenderName: String? = null,
-    initialSenderAvatar: String? = null
+    initialSenderAvatar: String? = null,
+    onCallStateChanged: (ActiveCallData?) -> Unit = {},
+    isInPip: Boolean = false,
+    autoAccept: Boolean = false
 ) {
     var currentScreen by remember(initialScreen) { 
         mutableStateOf(initialScreen ?: if (SupabaseManager.client.auth.currentSessionOrNull() != null) "dashboard" else "login") 
@@ -75,6 +158,131 @@ fun MainContent(
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
     
     val neuralJson = remember { Json { ignoreUnknownKeys = true; coerceInputValues = true; encodeDefaults = true } }
+
+    // Handle initial call from intent
+    LaunchedEffect(initialOffer) {
+        if (initialOffer != null && activeCallState.value == null) {
+            activeCallState.value = ActiveCallData(
+                type = initialCallType ?: "voice",
+                status = "incoming",
+                partnerName = initialSenderName ?: "Neural Node",
+                offer = neuralJson.parseToJsonElement(initialOffer).jsonObject,
+                partnerId = initialChatId ?: "",
+                isGroup = false,
+                logId = null
+            )
+        }
+    }
+
+    // Sync with activity
+    LaunchedEffect(activeCallState.value) {
+        onCallStateChanged(activeCallState.value)
+    }
+
+    // Call Service Lifecycle
+    LaunchedEffect(activeCallState.value?.status) {
+        val call = activeCallState.value
+        if (call?.status == "connected") {
+            val intent = Intent(context, CallService::class.java).apply {
+                putExtra("partnerName", call.partnerName)
+                putExtra("isVideo", call.type == "video")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } else if (call == null) {
+            val intent = Intent(context, CallService::class.java).apply {
+                action = "STOP_SERVICE"
+            }
+            context.startService(intent)
+        }
+    }
+
+
+
+    val acceptCall = remember(activeCallState.value, userProfile) {
+        {
+            val call = activeCallState.value
+            if (call != null) {
+                val hasCamera = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                val hasAudio = androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                
+                if (!hasCamera || !hasAudio) {
+                    callPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+                } else {
+                    scope.launch {
+                        try {
+                            val logId = call.logId
+                            if (logId != null) {
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        SupabaseManager.client.postgrest.from("call_logs").update({
+                                            set("status", "connected")
+                                        }) { filter { eq("id", logId) } }
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                            
+                            rtcManager.startLocalStreaming(call.type == "video")
+                            
+                            rtcManager.createPeerConnection(
+                                remoteUserId = call.partnerId,
+                                onIceCandidate = { candidate ->
+                                    val candObj = JSONObject().apply {
+                                        put("sdpMid", candidate.sdpMid)
+                                        put("sdpMLineIndex", candidate.sdpMLineIndex)
+                                        put("candidate", candidate.sdp)
+                                    }
+                                    SignalingManager.sendSignal(
+                                        to = call.partnerId,
+                                        fromId = userProfile?.id ?: "",
+                                        fromName = userProfile?.full_name ?: "Me",
+                                        type = "candidate",
+                                        candidate = candObj
+                                    )
+                                },
+                                onTrackAdded = { }
+                            )
+                            
+                            val offerSdp = call.offer?.get("sdp")?.jsonPrimitive?.content
+                            if (offerSdp != null) {
+                                rtcManager.setRemoteDescription(call.partnerId, SessionDescription(SessionDescription.Type.OFFER, offerSdp))
+                                rtcManager.processQueuedIceCandidates(call.partnerId)
+                                val answer = rtcManager.createAnswer(call.partnerId)
+                                if (answer != null) {
+                                    rtcManager.setLocalDescription(call.partnerId, answer)
+                                    val answerObj = JSONObject().apply {
+                                        put("type", "answer")
+                                        put("sdp", answer.description)
+                                    }
+                                    SignalingManager.sendSignal(
+                                        to = call.partnerId,
+                                        fromId = userProfile?.id ?: "",
+                                        fromName = userProfile?.full_name ?: "Me",
+                                        type = call.type,
+                                        answer = answerObj,
+                                        isGroup = call.isGroup,
+                                        groupId = call.groupId
+                                    )
+                                    activeCallState.value = call.copy(status = "connected")
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+        }
+    }
+
+    var autoAcceptTriggered by remember { mutableStateOf(false) }
+    LaunchedEffect(activeCallState.value, autoAccept) {
+        if (autoAccept && activeCallState.value?.status == "incoming" && !autoAcceptTriggered) {
+            autoAcceptTriggered = true
+            acceptCall()
+        }
+    }
 
     // Fetch user profile when currentScreen is not login
     LaunchedEffect(currentScreen) {
@@ -196,17 +404,20 @@ fun MainContent(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = !isInPip && drawerState.isOpen,
         drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = Color(0xFF080808),
-                drawerTonalElevation = 0.dp,
-                drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
-                modifier = Modifier.width(320.dp)
-            ) {
-                DrawerContent(userProfile = userProfile, onNavigate = { screen ->
-                    currentScreen = screen
-                    scope.launch { drawerState.close() }
-                })
+            if (!isInPip) {
+                ModalDrawerSheet(
+                    drawerContainerColor = Color(0xFF080808),
+                    drawerTonalElevation = 0.dp,
+                    drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
+                    modifier = Modifier.width(320.dp)
+                ) {
+                    DrawerContent(userProfile = userProfile, onNavigate = { screen: String ->
+                        currentScreen = screen
+                        scope.launch { drawerState.close() }
+                    })
+                }
             }
         }
     ) {
@@ -214,40 +425,45 @@ fun MainContent(
             containerColor = Color.Transparent
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize()) {
-                AppBackground(selectedBackground)
-                Box(modifier = Modifier.padding(padding)) {
-                when (currentScreen) {
-                    "login" -> LoginScreen(
-                        onLoginSuccess = { currentScreen = "dashboard" },
-                        onRegisterRequest = { currentScreen = "register" }
-                    )
-                    "register" -> RegisterScreen(
-                        onBack = { currentScreen = "login" },
-                        onRegisterSuccess = { currentScreen = "login" }
-                    )
-                    "dashboard" -> DashboardScreen(onOpenDrawer = { scope.launch { drawerState.open() } }, userProfile = userProfile)
-                    "inventory" -> InventoryScreen(onOpenDrawer = { scope.launch { drawerState.open() } }, userProfile = userProfile)
-                    "chat" -> ChatScreen(
-                        onOpenDrawer = { scope.launch { drawerState.open() } },
-                        userProfile = userProfile,
-                        initialChatId = initialChatId,
-                        initialCallType = initialCallType,
-                        initialOffer = initialOffer,
-                        initialSenderName = initialSenderName,
-                        initialSenderAvatar = initialSenderAvatar,
-                        activeCall = activeCallState.value,
-                        onActiveCallChange = { call -> activeCallState.value = call },
-                        onlineUsers = onlineUsersState.value,
-                        rtcManager = rtcManager
-                    )
-                    "status" -> StatusScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
-                    "pricing" -> PricingScreen(onBack = { scope.launch { drawerState.open() } })
-                    "profile" -> ProfileScreen(
-                        onOpenDrawer = { scope.launch { drawerState.open() } }, 
-                        selectedBg = selectedBackground,
-                        onBgChange = { selectedBackground = it }
-                    )
-                    "superadmin" -> SuperAdminScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
+                if (!isInPip) {
+                    AppBackground(selectedBackground)
+                }
+                Box(modifier = Modifier.padding(if (isInPip) PaddingValues(0.dp) else padding)) {
+                    if (!isInPip) {
+                        when (currentScreen) {
+                            "login" -> LoginScreen(
+                                onLoginSuccess = { currentScreen = "dashboard" },
+                                onRegisterRequest = { currentScreen = "register" }
+                            )
+                            "register" -> RegisterScreen(
+                                onBack = { currentScreen = "login" },
+                                onRegisterSuccess = { currentScreen = "login" }
+                            )
+                            "dashboard" -> DashboardScreen(onOpenDrawer = { scope.launch { drawerState.open() } }, userProfile = userProfile)
+                            "inventory" -> InventoryScreen(onOpenDrawer = { scope.launch { drawerState.open() } }, userProfile = userProfile)
+                            "chat" -> ChatScreen(
+                                onOpenDrawer = { scope.launch { drawerState.open() } },
+                                userProfile = userProfile,
+                                initialChatId = initialChatId,
+                                initialCallType = initialCallType,
+                                initialOffer = initialOffer,
+                                initialSenderName = initialSenderName,
+                                initialSenderAvatar = initialSenderAvatar,
+                                activeCall = activeCallState.value,
+                                onActiveCallChange = { call -> activeCallState.value = call },
+                                onlineUsers = onlineUsersState.value,
+                                rtcManager = rtcManager
+                            )
+                            "status" -> StatusScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
+                            "pricing" -> PricingScreen(onBack = { scope.launch { drawerState.open() } })
+                            "profile" -> ProfileScreen(
+                                onOpenDrawer = { scope.launch { drawerState.open() } }, 
+                                selectedBg = selectedBackground,
+                                onBgChange = { selectedBackground = it }
+                            )
+                            "superadmin" -> SuperAdminScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
+                        }
+                    }
                 }
 
                 // Global Call Overlay
@@ -271,54 +487,15 @@ fun MainContent(
                             rtcManager.stopAll()
                             activeCallState.value = null
                         },
-                        onAccept = {
-                            callPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
-                            scope.launch {
-                                try {
-                                    val logId = call.logId
-                                    if (logId != null) {
-                                        scope.launch(Dispatchers.IO) {
-                                            try {
-                                                SupabaseManager.client.postgrest.from("call_logs").update({
-                                                    set("status", "connected")
-                                                }) { filter { eq("id", logId) } }
-                                            } catch (_: Exception) {}
-                                        }
-                                    }
-                                    
-                                    rtcManager.startLocalStreaming(call.type == "video")
-                                    val offerSdp = call.offer?.get("sdp")?.jsonPrimitive?.content
-                                    if (offerSdp != null) {
-                                        rtcManager.setRemoteDescription(call.partnerId, SessionDescription(SessionDescription.Type.OFFER, offerSdp))
-                                        rtcManager.processQueuedIceCandidates(call.partnerId)
-                                        val answer = rtcManager.createAnswer(call.partnerId)
-                                        if (answer != null) {
-                                            rtcManager.setLocalDescription(call.partnerId, answer)
-                                            val answerObj = JSONObject().apply {
-                                                put("type", "answer")
-                                                put("sdp", answer.description)
-                                            }
-                                            SignalingManager.sendSignal(
-                                                to = call.partnerId,
-                                                fromId = userProfile?.id ?: "",
-                                                fromName = userProfile?.full_name ?: "Me",
-                                                type = call.type,
-                                                answer = answerObj,
-                                                isGroup = call.isGroup,
-                                                groupId = call.groupId
-                                            )
-                                            activeCallState.value = call.copy(status = "connected")
-                                        }
-                                    }
-                                } catch (_: Exception) {}
-                            }
+                        onAccept = acceptCall,
+                        onMinimize = { minimized ->
+                            activeCallState.value = activeCallState.value?.copy(isMinimized = minimized)
                         }
                     )
                 }
             }
         }
     }
-}
 }
 
 @Composable

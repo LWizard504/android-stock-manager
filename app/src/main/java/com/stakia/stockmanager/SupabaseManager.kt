@@ -17,8 +17,10 @@ import com.russhwolf.settings.SharedPreferencesSettings
 
 object SupabaseManager {
     lateinit var client: SupabaseClient
+    var isInitialized = false
     
     fun init(context: Context) {
+        if (isInitialized) return
         val settings = SharedPreferencesSettings(context.getSharedPreferences("supabase_auth", Context.MODE_PRIVATE))
         client = createSupabaseClient(
             supabaseUrl = "https://fctewfmsofdcqrwlxoyo.supabase.co",
@@ -37,5 +39,6 @@ object SupabaseManager {
             install(Realtime)
             install(Storage)
         }
+        isInitialized = true
     }
 }

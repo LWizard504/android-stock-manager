@@ -809,57 +809,278 @@ fun ChatScreenCallOverlay(
     rtcManager: WebRTCManager,
     currentUserId: String,
     onHangup: () -> Unit,
-    onAccept: () -> Unit
+    onAccept: () -> Unit,
+    onMinimize: (Boolean) -> Unit
 ) {
     var isMuted by remember { mutableStateOf(false) }
-    var isSpeakerphoneOn by remember { mutableStateOf(false) }
+    var isVideoOff by remember { mutableStateOf(false) }
+    var isSpeakerphoneOn by remember { mutableStateOf(callData.type == "video") }
     val accentYellow = Color(0xFFEAB308)
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.95f)).padding(32.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(120.dp).clip(CircleShape).background(Color(0xFF111111)).border(2.dp, accentYellow, CircleShape), contentAlignment = Alignment.Center) {
-                if (!callData.partnerAvatar.isNullOrBlank()) {
-                    AsyncImage(model = callData.partnerAvatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+    if (callData.isMinimized) {
+        // Minimized PiP View
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            contentAlignment = Alignment.TopEnd
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 40.dp)
+                    .size(120.dp, 180.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black)
+                    .border(2.dp, accentYellow.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    .clickable { onMinimize(false) }
+            ) {
+                if (callData.type == "video" && callData.status == "connected") {
+                    AndroidView(
+                        factory = { 
+                            val view = rtcManager.getOrCreateRemoteView(callData.partnerId)
+                            (view.parent as? android.view.ViewGroup)?.removeView(view)
+                            view
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
                 } else {
-                    Text(callData.partnerName.take(1).uppercase(), color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF111111)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (!callData.partnerAvatar.isNullOrBlank()) {
+                                AsyncImage(model = callData.partnerAvatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                            } else {
+                                Icon(Icons.Default.Person, contentDescription = null, tint = Color.Gray)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(callData.partnerName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                
+                // Expand Button
+                IconButton(
+                    onClick = { onMinimize(false) },
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp).size(24.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                 }
             }
+        }
+        return
+    }
 
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(callData.partnerName, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            Text(if (callData.status == "connected") "EN LLAMADA" else if (callData.status == "incoming") "LLAMADA ENTRANTE" else "LLAMANDO...", color = accentYellow, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp, modifier = Modifier.padding(top = 8.dp))
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        // Video Layer
+        if (callData.status == "connected" && callData.type == "video") {
+            // Remote Video (Full Screen)
+            AndroidView(
+                factory = { 
+                    val view = rtcManager.getOrCreateRemoteView(callData.partnerId)
+                    (view.parent as? android.view.ViewGroup)?.removeView(view)
+                    view
+                },
+                modifier = Modifier.fillMaxSize()
+            )
 
-            Spacer(modifier = Modifier.height(64.dp))
-
-            if (callData.status == "connected" && callData.type == "video") {
-                Row(modifier = Modifier.fillMaxWidth().height(250.dp)) {
-                    AndroidView(factory = { rtcManager.localView }, modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    AndroidView(factory = { rtcManager.getOrCreateRemoteView(callData.partnerId) }, modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(16.dp)))
+            // Local Video (PiP)
+            if (!isVideoOff) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 100.dp, end = 20.dp)
+                        .size(120.dp, 180.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .background(Color.Black)
+                ) {
+                    AndroidView(
+                        factory = { 
+                            val view = rtcManager.localView
+                            (view.parent as? android.view.ViewGroup)?.removeView(view)
+                            view
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        } else {
+            // Audio Call or Calling State
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF111111))
+                        .border(2.dp, accentYellow.copy(alpha = 0.5f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!callData.partnerAvatar.isNullOrBlank()) {
+                        AsyncImage(
+                            model = callData.partnerAvatar,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text(
+                            callData.partnerName.take(1).uppercase(),
+                            color = Color.White,
+                            fontSize = 56.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(32.dp))
+                Text(
+                    callData.partnerName,
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    when (callData.status) {
+                        "connected" -> "CONECTADO"
+                        "incoming" -> "LLAMADA ENTRANTE"
+                        else -> "LLAMANDO..."
+                    },
+                    color = accentYellow,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 3.sp,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
             }
+        }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                if (callData.status == "connected" || callData.status == "calling") {
-                    FloatingActionButton(onClick = { isMuted = !isMuted; rtcManager.setAudioEnabled(!isMuted) }, containerColor = if (isMuted) Color(0xFFEF4444) else Color(0xFF222222), shape = CircleShape) {
-                        Icon(if (isMuted) Icons.Default.MicOff else Icons.Default.Mic, contentDescription = null, tint = Color.White)
-                    }
-                    FloatingActionButton(onClick = { isSpeakerphoneOn = !isSpeakerphoneOn; rtcManager.toggleSpeakerphone(isSpeakerphoneOn) }, containerColor = if (isSpeakerphoneOn) accentYellow else Color(0xFF222222), shape = CircleShape) {
-                        Icon(if (isSpeakerphoneOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff, contentDescription = null, tint = if (isSpeakerphoneOn) Color.Black else Color.White)
-                    }
-                }
+        // Top Controls (Minimize)
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 48.dp, start = 24.dp, end = 24.dp)) {
+            IconButton(
+                onClick = { onMinimize(true) },
+                modifier = Modifier.align(Alignment.TopStart).background(Color.Black.copy(alpha = 0.3f), CircleShape)
+            ) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+            }
+        }
 
+        // Control Layer
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (callData.status == "incoming") {
-                    FloatingActionButton(onClick = onAccept, containerColor = Color(0xFF22C55E), shape = CircleShape, modifier = Modifier.size(72.dp)) {
-                        Icon(if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                    Row(
+                        modifier = Modifier.padding(bottom = 32.dp),
+                        horizontalArrangement = Arrangement.spacedBy(40.dp)
+                    ) {
+                        CallActionButton(
+                            onClick = onHangup,
+                            icon = Icons.Default.CallEnd,
+                            color = Color(0xFFEF4444),
+                            size = 72.dp
+                        )
+                        CallActionButton(
+                            onClick = onAccept,
+                            icon = if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call,
+                            color = Color(0xFF22C55E),
+                            size = 72.dp
+                        )
                     }
-                }
+                } else {
+                    // Connected/Calling Controls
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(32.dp))
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CallActionButton(
+                            onClick = { 
+                                isMuted = !isMuted
+                                rtcManager.setAudioEnabled(!isMuted)
+                            },
+                            icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            color = if (isMuted) Color.White.copy(alpha = 0.1f) else Color.Transparent,
+                            tint = if (isMuted) Color.Red else Color.White
+                        )
 
-                FloatingActionButton(onClick = onHangup, containerColor = Color(0xFFEF4444), shape = CircleShape, modifier = Modifier.size(72.dp)) {
-                    Icon(Icons.Default.CallEnd, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                        if (callData.type == "video") {
+                            CallActionButton(
+                                onClick = {
+                                    isVideoOff = !isVideoOff
+                                    rtcManager.setVideoEnabled(!isVideoOff)
+                                },
+                                icon = if (isVideoOff) Icons.Default.VideocamOff else Icons.Default.Videocam,
+                                color = if (isVideoOff) Color.White.copy(alpha = 0.1f) else Color.Transparent,
+                                tint = if (isVideoOff) Color.Red else Color.White
+                            )
+                            
+                            CallActionButton(
+                                onClick = { rtcManager.switchCamera() },
+                                icon = Icons.Default.FlipCameraAndroid,
+                                color = Color.Transparent
+                            )
+                        }
+
+                        CallActionButton(
+                            onClick = {
+                                isSpeakerphoneOn = !isSpeakerphoneOn
+                                rtcManager.toggleSpeakerphone(isSpeakerphoneOn)
+                            },
+                            icon = if (isSpeakerphoneOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            color = if (isSpeakerphoneOn) accentYellow.copy(alpha = 0.2f) else Color.Transparent,
+                            tint = if (isSpeakerphoneOn) accentYellow else Color.White
+                        )
+
+                        CallActionButton(
+                            onClick = onHangup,
+                            icon = Icons.Default.CallEnd,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+@Composable
+fun CallActionButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    tint: Color = Color.White,
+    size: androidx.compose.ui.unit.Dp = 56.dp
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(color)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(size * 0.5f)
+        )
+    }
+}
+

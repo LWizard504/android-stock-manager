@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import io.github.jan.supabase.auth.auth
 
 class PushNotificationService : FirebaseMessagingService() {
 
@@ -25,12 +26,24 @@ class PushNotificationService : FirebaseMessagingService() {
         
         Log.d("FCM", "Message received: ${remoteMessage.data}")
 
+        val senderId = remoteMessage.data["sender_id"]
+        val type = remoteMessage.data["type"]
+
+        // Initialize Supabase if not yet done (rare but possible in service)
+        try {
+            if (!SupabaseManager.isInitialized) {
+                SupabaseManager.init(this)
+            }
+            if (SupabaseManager.client.auth.currentUserOrNull()?.id == senderId) {
+                Log.d("FCM", "Skipping self-notification loopback")
+                return
+            }
+        } catch (_: Exception) { }
+
         val rawTitle = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "Nueva notificación"
         val senderName = remoteMessage.data["sender_name"]
         val title = if (senderName != null) "Nueva notificación de: $senderName" else rawTitle
         val message = remoteMessage.notification?.body ?: remoteMessage.data["message"] ?: "Has recibido un mensaje"
-        val type = remoteMessage.data["type"]
-        val senderId = remoteMessage.data["sender_id"]
         val callType = remoteMessage.data["call_type"]
         val offer = remoteMessage.data["offer"]
         val senderAvatar = remoteMessage.data["sender_avatar"]

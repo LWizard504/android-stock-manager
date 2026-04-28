@@ -87,13 +87,17 @@ class WebRTCManager(private val context: Context) {
     }
 
     fun getOrCreateRemoteView(userId: String): SurfaceViewRenderer {
-        return remoteViews.getOrPut(userId) {
-            SurfaceViewRenderer(context).apply {
-                init(rootEglBase.eglBaseContext, null)
-                setMirror(false)
-                setEnableHardwareScaler(true)
-            }
+        val existing = remoteViews[userId]
+        if (existing != null) return existing
+        
+        // Si no existe, lo creamos. IMPORTANTE: Esto debe ser en el UI Thread si se llama desde WebRTC
+        val view = SurfaceViewRenderer(context).apply {
+            init(rootEglBase.eglBaseContext, null)
+            setMirror(false)
+            setEnableHardwareScaler(true)
         }
+        remoteViews[userId] = view
+        return view
     }
 
     private fun createVideoCapturer(): CameraVideoCapturer? {
@@ -105,6 +109,10 @@ class WebRTCManager(private val context: Context) {
             }
         }
         return null
+    }
+
+    fun switchCamera() {
+        videoCapturer?.switchCamera(null)
     }
 
     fun createPeerConnection(
@@ -128,24 +136,30 @@ class WebRTCManager(private val context: Context) {
                 candidate?.let { onIceCandidate(it) }
             }
             override fun onAddStream(stream: MediaStream?) {
-                stream?.videoTracks?.firstOrNull()?.let { track ->
-                    val view = getOrCreateRemoteView(remoteUserId)
-                    track.addSink(view)
-                    remoteVideoTracks[remoteUserId] = track
+                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                mainHandler.post {
+                    stream?.videoTracks?.firstOrNull()?.let { track ->
+                        val view = getOrCreateRemoteView(remoteUserId)
+                        track.addSink(view)
+                        remoteVideoTracks[remoteUserId] = track
+                    }
+                    onTrackAdded(remoteUserId)
                 }
-                onTrackAdded(remoteUserId)
             }
             override fun onTrack(transceiver: RtpTransceiver?) {
-                val track = transceiver?.receiver?.track()
-                if (track is VideoTrack) {
-                    val view = getOrCreateRemoteView(remoteUserId)
-                    track.addSink(view)
-                    remoteVideoTracks[remoteUserId] = track
+                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                mainHandler.post {
+                    val track = transceiver?.receiver?.track()
+                    if (track is VideoTrack) {
+                        val view = getOrCreateRemoteView(remoteUserId)
+                        track.addSink(view)
+                        remoteVideoTracks[remoteUserId] = track
+                    }
+                    if (track is AudioTrack) {
+                        track.setEnabled(true)
+                    }
+                    onTrackAdded(remoteUserId)
                 }
-                if (track is AudioTrack) {
-                    track.setEnabled(true)
-                }
-                onTrackAdded(remoteUserId)
             }
             override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) {
