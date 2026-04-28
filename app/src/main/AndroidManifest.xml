@@ -55,12 +55,12 @@
         <receiver android:name=".ReplyReceiver" android:exported="false" />
 
         <provider
-            android:name="com.stakia.stockmanager.GenericFileProvider"
-            android:authorities="com.stakia.stockmanager.fileprovider"
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.stakia.stockmanager.updates.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
-                android:name="android.support.FILE_PATHS"
+                android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
     </application>

@@ -44,7 +44,8 @@ object UpdateManager {
                 val versionFromServer = fetchLatestVersion()
                 if (versionFromServer != null && isNewerVersion(currentVersion, versionFromServer)) {
                     latestVersion = versionFromServer
-                    showDialog = true
+                    // Actualización automática: avisamos a la UI inmediatamente
+                    onUpdateFound()
                 } else if (manualCheck) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Ya tienes la última versión (v$currentVersion)", Toast.LENGTH_SHORT).show()
@@ -52,27 +53,6 @@ object UpdateManager {
                 }
                 isSearchingManual.value = false
             }
-        }
-
-        if (showDialog) {
-            AlertDialog(
-                onDismissRequest = { showDialog = false },
-                title = { Text("Actualización Disponible") },
-                text = { Text("Hay una nueva versión disponible (v$latestVersion). ¿Deseas actualizar ahora?") },
-                confirmButton = {
-                    TextButton(onClick = {
-                        showDialog = false
-                        onUpdateFound() // Avisamos a la UI para que cambie a la pantalla de descarga
-                    }) {
-                        Text("Actualizar")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDialog = false }) {
-                        Text("Más tarde")
-                    }
-                }
-            )
         }
     }
 
@@ -86,7 +66,8 @@ object UpdateManager {
         
         val client = HttpClient()
         try {
-            val file = File(context.cacheDir, "update.apk")
+            // Usar cacheDir es más seguro para FileProvider y no requiere permisos de almacenamiento externo
+            val file = File(context.cacheDir, "StockManagerUpdate.apk")
             if (file.exists()) file.delete()
 
             val response = client.get(APK_URL) {
@@ -109,11 +90,12 @@ object UpdateManager {
                 }
             }
 
-            downloadInfo = "Descarga completada. Iniciando instalación..."
+            downloadInfo = "Descarga completada. Abriendo instalador..."
             installApk(context, file)
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Error en la descarga: ${e.message}", Toast.LENGTH_LONG).show()
+                android.util.Log.e("UpdateManager", "Error en descarga", e)
+                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         } finally {
             client.close()
@@ -123,18 +105,33 @@ object UpdateManager {
 
     private fun installApk(context: Context, file: File) {
         try {
-            val authority = "com.stakia.stockmanager.fileprovider"
+            val authority = "com.stakia.stockmanager.updates.fileprovider"
+            if (!file.exists() || file.length() == 0L) {
+                android.util.Log.e("UpdateManager", "Archivo inválido o inexistente")
+                return
+            }
+
             val uri = FileProvider.getUriForFile(context, authority, file)
+            
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
+            
             context.startActivity(intent)
+            android.util.Log.d("UpdateManager", "Intent de instalación lanzado correctamente")
         } catch (e: Exception) {
-            android.util.Log.e("UpdateManager", "Error installing APK", e)
-            Toast.makeText(context, "Error al iniciar instalación: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            android.util.Log.e("UpdateManager", "Error crítico al instalar", e)
+            Toast.makeText(context, "Error al abrir APK: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            
+            // Intento desesperado: si falla el Provider, intentar abrir la carpeta (esto es limitado en Android moderno)
+            try {
+                val browserIntent = Intent(Intent.ACTION_GET_CONTENT)
+                browserIntent.type = "application/vnd.android.package-archive"
+                context.startActivity(browserIntent)
+            } catch (_: Exception) {}
         }
     }
 

@@ -3,6 +3,7 @@ package com.stakia.stockmanager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -722,7 +723,68 @@ fun ImagePreview(url: String, onDismiss: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AttachmentOption(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
+        Box(modifier = Modifier.size(56.dp).clip(CircleShape).background(color.copy(alpha = 0.1f)).border(1.dp, color.copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = color)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(label, color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+suspend fun uploadAndSendMessage(
+    uri: Uri,
+    type: String,
+    context: android.content.Context,
+    chatId: String,
+    currentUserId: String,
+    userProfile: Profile?,
+    isGroup: Boolean,
+    onMessageCreated: (ChatMessage) -> Unit
+) {
+    try {
+        val fileName = "${UUID.randomUUID()}.${if (type == "audio") "m4a" else if (type == "video") "mp4" else "jpg"}"
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return
+        val bytes = inputStream.readBytes()
+        
+        val bucket = SupabaseManager.client.storage.from("chat_attachments")
+        bucket.upload(fileName, bytes)
+        val publicUrl = bucket.publicUrl(fileName)
+        
+        val newMsg = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            sender_id = currentUserId,
+            recipient_id = if (isGroup) null else chatId,
+            group_id = if (isGroup) chatId else null,
+            content = if (type == "image") "Sent an image" else if (type == "audio") "Voice message" else "File attached",
+            file_url = publicUrl,
+            file_type = type,
+            created_at = java.time.Instant.now().toString(),
+            sender_name = userProfile?.full_name ?: "Neural User"
+        )
+        
+        onMessageCreated(newMsg)
+        
+        SignalingManager.sendMessage(
+            to = chatId,
+            content = newMsg.content ?: "",
+            senderName = userProfile?.full_name ?: "User",
+            senderAvatar = userProfile?.avatar_url,
+            isGroup = isGroup,
+            fileUrl = publicUrl,
+            fileType = type
+        )
+    } catch (e: Exception) {
+        e.printStackTrace()
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Error al enviar archivo", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationScreen(
     profile: Profile?,
@@ -743,15 +805,30 @@ fun ConversationScreen(
     val scope = rememberCoroutineScope()
     val neuralJson = remember { Json { ignoreUnknownKeys = true; coerceInputValues = true } }
     
+    val chatId = profile?.id ?: "group:${group?.id}"
+    val title = profile?.full_name ?: group?.name ?: "Neural Node"
+    val avatar = profile?.avatar_url ?: group?.icon_url
+    
     var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var text by remember { mutableStateOf("") }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
     val selectedMessages = remember { mutableStateListOf<ChatMessage>() }
     var showMessageOptions by remember { mutableStateOf<ChatMessage?>(null) }
 
-    val chatId = profile?.id ?: "group:${group?.id}"
-    val title = profile?.full_name ?: group?.name ?: "Neural Node"
-    val avatar = profile?.avatar_url ?: group?.icon_url
+    // Media States
+    var isRecording by remember { mutableStateOf(false) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var audioFile by remember { mutableStateOf<File?>(null) }
+    
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { scope.launch { uploadAndSendMessage(it, "image", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it } } }
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { scope.launch { uploadAndSendMessage(it, "video", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it } } }
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { scope.launch { uploadAndSendMessage(it, "file", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it } } }
+    }
 
     // Typing Signal Logic
     LaunchedEffect(text) {
@@ -797,43 +874,96 @@ fun ConversationScreen(
         onDispose { SignalingManager.onNewMessageListener = null }
     }
 
+    val isInSelectionMode = selectedMessages.isNotEmpty()
+
+    androidx.activity.compose.BackHandler(enabled = isInSelectionMode || replyingToMessage != null) {
+        if (isInSelectionMode) {
+            selectedMessages.clear()
+        } else {
+            replyingToMessage = null
+        }
+    }
+
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier.fillMaxWidth().background(Color.Transparent).statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White) }
-                Spacer(modifier = Modifier.width(12.dp))
-                Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111111))) {
-                    if (!avatar.isNullOrBlank()) {
-                        AsyncImage(model = avatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            if (isInSelectionMode) {
+                // Selection Mode TopBar
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(accentYellow).statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { selectedMessages.clear() }) { 
+                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.Black) 
                     }
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    val presence = presences[profile?.id ?: ""]
-                    Text(title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
-                    if (presence?.isTyping == true) {
-                        Text("Escribiendo...", color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    } else if (presence?.isRecording == true) {
-                        Text("Grabando audio...", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        Text(if (profile != null) "Direct Link" else "Neural Cluster", color = Color.Gray, fontSize = 10.sp)
+                    Text(
+                        "${selectedMessages.size}", 
+                        color = Color.Black, 
+                        fontWeight = FontWeight.Bold, 
+                        fontSize = 18.sp,
+                        modifier = Modifier.padding(start = 24.dp)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    
+                    if (selectedMessages.size == 1) {
+                        IconButton(onClick = { 
+                            replyingToMessage = selectedMessages.first()
+                            selectedMessages.clear()
+                        }) { Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = "Reply", tint = Color.Black) }
                     }
+                    
+                    IconButton(onClick = { 
+                        val content = selectedMessages.joinToString("\n") { it.content ?: "" }
+                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val clip = android.content.ClipData.newPlainText("Mensajes de StockManager", content)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "Copiado al portapapeles", Toast.LENGTH_SHORT).show()
+                        selectedMessages.clear()
+                    }) { Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color.Black) }
+                    
+                    IconButton(onClick = { 
+                        val idsToRemove = selectedMessages.mapNotNull { it.id }.toSet()
+                        messages = messages.filter { it.id == null || it.id !in idsToRemove }
+                        selectedMessages.clear()
+                    }) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Black) }
                 }
-                val isCallActive = activeCall != null && (activeCall.status == "connected" || activeCall.status == "calling" || activeCall.status == "connecting")
-                IconButton(
-                    onClick = { if (profile != null) onInitiateCall(profile.id, false, profile.full_name ?: "User", profile.avatar_url) },
-                    enabled = !isCallActive,
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (isCallActive) Color.DarkGray else Color(0xFF1A1A1A))
-                ) { Icon(Icons.Default.Call, contentDescription = null, tint = if (isCallActive) Color.Gray else Color.White) }
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = { if (profile != null) onInitiateCall(profile.id, true, profile.full_name ?: "User", profile.avatar_url) },
-                    enabled = !isCallActive,
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (isCallActive) Color.DarkGray else Color(0xFF1A1A1A))
-                ) { Icon(Icons.Default.Videocam, contentDescription = null, tint = if (isCallActive) Color.Gray else accentYellow) }
+            } else {
+                // Normal TopBar
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Color.Transparent).statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White) }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111111))) {
+                        if (!avatar.isNullOrBlank()) {
+                            AsyncImage(model = avatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        val presence = presences[profile?.id ?: ""]
+                        Text(title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        if (presence?.isTyping == true) {
+                            Text("Escribiendo...", color = Color(0xFF22C55E), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        } else if (presence?.isRecording == true) {
+                            Text("Grabando audio...", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text(if (profile != null) "Direct Link" else "Neural Cluster", color = Color.Gray, fontSize = 10.sp)
+                        }
+                    }
+                    val isCallActive = activeCall != null && (activeCall.status == "connected" || activeCall.status == "calling" || activeCall.status == "connecting")
+                    IconButton(
+                        onClick = { if (profile != null) onInitiateCall(profile.id, false, profile.full_name ?: "User", profile.avatar_url) },
+                        enabled = !isCallActive,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (isCallActive) Color.DarkGray else Color(0xFF1A1A1A))
+                    ) { Icon(Icons.Default.Call, contentDescription = null, tint = if (isCallActive) Color.Gray else Color.White) }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { if (profile != null) onInitiateCall(profile.id, true, profile.full_name ?: "User", profile.avatar_url) },
+                        enabled = !isCallActive,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (isCallActive) Color.DarkGray else Color(0xFF1A1A1A))
+                    ) { Icon(Icons.Default.Videocam, contentDescription = null, tint = if (isCallActive) Color.Gray else accentYellow) }
+                }
             }
         },
         containerColor = Color.Transparent
@@ -864,11 +994,18 @@ fun ConversationScreen(
                         msg = msg, 
                         currentUserId = currentUserId,
                         isSelected = selectedMessages.contains(msg),
-                        onLongClick = { showMessageOptions = msg },
+                        onLongClick = { 
+                            if (selectedMessages.isEmpty()) {
+                                selectedMessages.add(msg)
+                            }
+                        },
                         onClick = {
                             if (selectedMessages.isNotEmpty()) {
-                                if (selectedMessages.contains(msg)) selectedMessages.remove(msg)
-                                else selectedMessages.add(msg)
+                                if (selectedMessages.contains(msg)) {
+                                    selectedMessages.remove(msg)
+                                } else {
+                                    selectedMessages.add(msg)
+                                }
                             }
                         }
                     )
@@ -894,7 +1031,29 @@ fun ConversationScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF0A0A0A)).padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { /* Attach */ }) { Icon(Icons.Default.Add, contentDescription = null, tint = Color.Gray) }
+                var showAttachmentMenu by remember { mutableStateOf(false) }
+                
+                IconButton(onClick = { showAttachmentMenu = true }) { Icon(Icons.Default.Add, contentDescription = null, tint = Color.Gray) }
+                
+                if (showAttachmentMenu) {
+                    androidx.compose.ui.window.Dialog(onDismissRequest = { showAttachmentMenu = false }) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
+                            shape = RoundedCornerShape(24.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Text("ADJUNTAR NEURAL", color = accentYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                    AttachmentOption(Icons.Default.Image, "Imagen", accentYellow) { imagePicker.launch("image/*"); showAttachmentMenu = false }
+                                    AttachmentOption(Icons.Default.Videocam, "Video", accentYellow) { videoPicker.launch("video/*"); showAttachmentMenu = false }
+                                    AttachmentOption(Icons.Default.Description, "Archivo", accentYellow) { filePicker.launch("*/*"); showAttachmentMenu = false }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 BasicTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -902,9 +1061,10 @@ fun ConversationScreen(
                     textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(accentYellow)
                 )
-                IconButton(
-                    onClick = {
-                        if (text.isNotBlank()) {
+                
+                if (text.isNotBlank()) {
+                    IconButton(
+                        onClick = {
                             val isGroup = group != null
                             val targetId = if (isGroup) group!!.id else (profile?.id ?: "")
                             val messageText = text
@@ -937,10 +1097,96 @@ fun ConversationScreen(
                                     replyTo = newMsg.reply_to_id
                                 )
                             }
+                        },
+                        modifier = Modifier.size(40.dp).clip(CircleShape).background(accentYellow)
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp)) }
+                } else {
+                    // Voice Recorder Button
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (isRecording) Color.Red else accentYellow)
+                            .combinedClickable(
+                                onClick = { Toast.makeText(context, "Mantén presionado para grabar", Toast.LENGTH_SHORT).show() },
+                                onLongClick = {
+                                    scope.launch {
+                                        try {
+                                            val file = File(context.cacheDir, "audio_${UUID.randomUUID()}.m4a")
+                                            audioFile = file
+                                            mediaRecorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                                MediaRecorder(context)
+                                            } else {
+                                                MediaRecorder()
+                                            }.apply {
+                                                setAudioSource(MediaRecorder.AudioSource.MIC)
+                                                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                                setOutputFile(file.absolutePath)
+                                                prepare()
+                                                start()
+                                            }
+                                            isRecording = true
+                                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", true)
+                                        } catch (e: Exception) { e.printStackTrace() }
+                                    }
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = if (isRecording) Color.White else Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    
+                    if (isRecording) {
+                        LaunchedEffect(isRecording) {
+                            // Wait for release logic in Compose is tricky with combinedClickable
+                            // We will use a separate detector or just a "Stop to Send" tap logic for simplicity in this MVP
                         }
+                    }
+                }
+            }
+            
+            // Handle Recording Release (Simplified)
+            if (isRecording) {
+                AlertDialog(
+                    onDismissRequest = { },
+                    title = { Text("Grabando Audio", color = Color.White) },
+                    text = { Text("Suelta o presiona enviar para mandar la nota de voz.", color = Color.Gray) },
+                    confirmButton = {
+                        Button(onClick = {
+                            isRecording = false
+                            mediaRecorder?.apply {
+                                stop()
+                                release()
+                            }
+                            mediaRecorder = null
+                            audioFile?.let { file ->
+                                scope.launch {
+                                    val uri = Uri.fromFile(file)
+                                    uploadAndSendMessage(uri, "audio", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it }
+                                }
+                            }
+                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", false)
+                        }) { Text("Enviar") }
                     },
-                    modifier = Modifier.size(40.dp).clip(CircleShape).background(accentYellow)
-                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp)) }
+                    dismissButton = {
+                        TextButton(onClick = {
+                            isRecording = false
+                            mediaRecorder?.apply {
+                                stop()
+                                release()
+                            }
+                            mediaRecorder = null
+                            audioFile?.delete()
+                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", false)
+                        }) { Text("Cancelar") }
+                    }
+                )
             }
         }
     }
@@ -995,21 +1241,134 @@ fun MessageBubble(
                 .clip(shape)
                 .background(bgColor)
                 .border(1.dp, if (isSelected) Color(0xFFEAB308) else Color(0xFF222222), shape)
-                .padding(12.dp)
+                .padding(if (msg.file_type == "image") 4.dp else 12.dp)
         ) {
             Column {
-                if (msg.reply_to_content != null) {
-                    Box(modifier = Modifier.padding(bottom = 8.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.3f)).padding(8.dp)) {
-                        Column {
-                            Text(msg.reply_to_sender ?: "User", color = Color(0xFFEAB308), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            Text(msg.reply_to_content ?: "", color = Color.Gray, fontSize = 11.sp, maxLines = 1)
+                if (msg.reply_to_id != null) {
+                    ReplyBubble(msg.reply_to_sender ?: "User", msg.reply_to_content ?: "")
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                when (msg.file_type) {
+                    "image" -> {
+                        AsyncImage(
+                            model = msg.file_url,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 300.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    "video" -> {
+                        Box(contentAlignment = Alignment.Center) {
+                            AsyncImage(
+                                model = msg.file_url,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.Black)
+                            )
+                            Icon(Icons.Default.PlayCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(48.dp))
+                        }
+                    }
+                    "audio" -> {
+                        AudioPlayer(msg.file_url ?: "")
+                    }
+                    else -> {
+                        if (!msg.content.isNullOrBlank()) {
+                            Text(msg.content, color = Color.White, fontSize = 14.sp)
                         }
                     }
                 }
-                Text(msg.content ?: "", color = Color.White, fontSize = 14.sp)
+                
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(msg.created_at?.takeLast(5) ?: "", color = Color.Gray, fontSize = 9.sp, modifier = Modifier.align(Alignment.End))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.End)) {
+                    Text(
+                        msg.created_at?.takeLast(5) ?: "", 
+                        color = Color.Gray, 
+                        fontSize = 9.sp
+                    )
+                    if (isMe) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.DoneAll, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(12.dp))
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+fun AudioPlayer(url: String) {
+    val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(false) }
+    val mediaPlayer = remember { MediaPlayer() }
+    var duration by remember { mutableStateOf(0) }
+    var position by remember { mutableStateOf(0f) }
+
+    DisposableEffect(url) {
+        onDispose {
+            mediaPlayer.release()
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(4.dp)
+    ) {
+        IconButton(onClick = {
+            if (isPlaying) {
+                mediaPlayer.pause()
+                isPlaying = false
+            } else {
+                try {
+                    if (mediaPlayer.duration <= 0) {
+                        mediaPlayer.reset()
+                        mediaPlayer.setDataSource(url)
+                        mediaPlayer.prepareAsync()
+                        mediaPlayer.setOnPreparedListener {
+                            duration = it.duration
+                            it.start()
+                            isPlaying = true
+                        }
+                    } else {
+                        mediaPlayer.start()
+                        isPlaying = true
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+        }) {
+            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFEAB308))
+        }
+        
+        LinearProgressIndicator(
+            progress = { if (duration > 0) position / duration else 0f },
+            modifier = Modifier.weight(1f).height(4.dp).clip(CircleShape),
+            color = Color(0xFFEAB308),
+            trackColor = Color.DarkGray,
+        )
+    }
+}
+
+@Composable
+fun ReplyBubble(sender: String, content: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.3f))
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+            .padding(8.dp)
+    ) {
+        Box(modifier = Modifier.width(4.dp).height(40.dp).background(Color(0xFFEAB308)))
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(sender, color = Color(0xFFEAB308), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(content, color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
