@@ -13,6 +13,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -1107,31 +1110,61 @@ fun ConversationScreen(
                             .size(40.dp)
                             .clip(CircleShape)
                             .background(if (isRecording) Color.Red else accentYellow)
-                            .combinedClickable(
-                                onClick = { Toast.makeText(context, "Mantén presionado para grabar", Toast.LENGTH_SHORT).show() },
-                                onLongClick = {
-                                    scope.launch {
-                                        try {
-                                            val file = File(context.cacheDir, "audio_${UUID.randomUUID()}.m4a")
-                                            audioFile = file
-                                            mediaRecorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                                MediaRecorder(context)
-                                            } else {
-                                                MediaRecorder()
-                                            }.apply {
-                                                setAudioSource(MediaRecorder.AudioSource.MIC)
-                                                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                                                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                                                setOutputFile(file.absolutePath)
-                                                prepare()
-                                                start()
-                                            }
-                                            isRecording = true
-                                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", true)
-                                        } catch (e: Exception) { e.printStackTrace() }
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val down = awaitFirstDown()
+                                        // Long press simulation or immediate start
+                                        // We'll start immediate for responsiveness in this neural version
+                                        scope.launch {
+                                            try {
+                                                val file = File(context.cacheDir, "audio_${UUID.randomUUID()}.m4a")
+                                                audioFile = file
+                                                mediaRecorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                                    MediaRecorder(context)
+                                                } else {
+                                                    MediaRecorder()
+                                                }.apply {
+                                                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                                                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                                    setOutputFile(file.absolutePath)
+                                                    prepare()
+                                                    start()
+                                                }
+                                                isRecording = true
+                                                if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", true)
+                                            } catch (e: Exception) { e.printStackTrace() }
+                                        }
+
+                                        val up = waitForUpOrCancellation()
+                                        
+                                        // On release
+                                        isRecording = false
+                                        scope.launch {
+                                            try {
+                                                mediaRecorder?.apply {
+                                                    stop()
+                                                    release()
+                                                }
+                                                mediaRecorder = null
+                                                
+                                                if (up != null) {
+                                                    // Release was successful (not cancelled)
+                                                    audioFile?.let { file ->
+                                                        val uri = Uri.fromFile(file)
+                                                        uploadAndSendMessage(uri, "audio", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it }
+                                                    }
+                                                } else {
+                                                    // Cancelled or moved too far
+                                                    audioFile?.delete()
+                                                }
+                                            } catch (e: Exception) { e.printStackTrace() }
+                                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", false)
+                                        }
                                     }
                                 }
-                            ),
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -1141,53 +1174,6 @@ fun ConversationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                    
-                    if (isRecording) {
-                        LaunchedEffect(isRecording) {
-                            // Wait for release logic in Compose is tricky with combinedClickable
-                            // We will use a separate detector or just a "Stop to Send" tap logic for simplicity in this MVP
-                        }
-                    }
-                }
-            }
-            
-            // Handle Recording Release (Simplified)
-            if (isRecording) {
-                AlertDialog(
-                    onDismissRequest = { },
-                    title = { Text("Grabando Audio", color = Color.White) },
-                    text = { Text("Suelta o presiona enviar para mandar la nota de voz.", color = Color.Gray) },
-                    confirmButton = {
-                        Button(onClick = {
-                            isRecording = false
-                            mediaRecorder?.apply {
-                                stop()
-                                release()
-                            }
-                            mediaRecorder = null
-                            audioFile?.let { file ->
-                                scope.launch {
-                                    val uri = Uri.fromFile(file)
-                                    uploadAndSendMessage(uri, "audio", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it }
-                                }
-                            }
-                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", false)
-                        }) { Text("Enviar") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = {
-                            isRecording = false
-                            mediaRecorder?.apply {
-                                stop()
-                                release()
-                            }
-                            mediaRecorder = null
-                            audioFile?.delete()
-                            if (profile != null) SignalingManager.sendRecording(profile.id, currentUserId, userProfile?.full_name ?: "User", false)
-                        }) { Text("Cancelar") }
-                    }
-                )
-            }
         }
     }
 
@@ -1217,6 +1203,8 @@ fun ConversationScreen(
             },
             confirmButton = {}
         )
+    }
+        }
     }
 }
 
