@@ -810,66 +810,56 @@ fun ChatScreenCallOverlay(
     currentUserId: String,
     onHangup: () -> Unit,
     onAccept: () -> Unit,
-    onMinimize: (Boolean) -> Unit
+    onMinimize: (Boolean) -> Unit,
+    isInPip: Boolean = false
 ) {
     var isMuted by remember { mutableStateOf(false) }
     var isVideoOff by remember { mutableStateOf(false) }
     var isSpeakerphoneOn by remember { mutableStateOf(callData.type == "video") }
     val accentYellow = Color(0xFFEAB308)
 
-    if (callData.isMinimized) {
-        // Minimized PiP View
+    if (callData.isMinimized || isInPip) {
+        // Minimized PiP View or Android System PiP
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            contentAlignment = Alignment.TopEnd
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 40.dp)
-                    .size(120.dp, 180.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black)
-                    .border(2.dp, accentYellow.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                    .clickable { onMinimize(false) }
-            ) {
-                if (callData.type == "video" && callData.status == "connected") {
-                    AndroidView(
-                        factory = { 
-                            val view = rtcManager.getOrCreateRemoteView(callData.partnerId)
-                            (view.parent as? android.view.ViewGroup)?.removeView(view)
-                            view
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
+            if (callData.type == "video" && callData.status == "connected") {
+                AndroidView(
+                    factory = { 
+                        val view = rtcManager.getOrCreateRemoteView(callData.partnerId)
+                        (view.parent as? android.view.ViewGroup)?.removeView(view)
+                        view
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // Audio Call PiP
+                Column(
+                    modifier = Modifier.fillMaxSize().background(Color.Black),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier.size(if (isInPip) 60.dp else 80.dp).clip(CircleShape).background(Color(0xFF111111)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color(0xFF111111)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (!callData.partnerAvatar.isNullOrBlank()) {
-                                AsyncImage(model = callData.partnerAvatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            } else {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = Color.Gray)
-                            }
+                        if (!callData.partnerAvatar.isNullOrBlank()) {
+                            AsyncImage(model = callData.partnerAvatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        } else {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = Color.Gray)
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(callData.partnerName, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                
-                // Expand Button
+            }
+            
+            if (!isInPip) {
+                // Expand Button only for internal minimized view
                 IconButton(
                     onClick = { onMinimize(false) },
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp).size(24.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp).size(32.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
                 ) {
-                    Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -895,7 +885,7 @@ fun ChatScreenCallOverlay(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 100.dp, end = 20.dp)
-                        .size(120.dp, 180.dp)
+                        .size(100.dp, 150.dp) // Slightly smaller
                         .clip(RoundedCornerShape(16.dp))
                         .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
                         .background(Color.Black)
@@ -904,6 +894,8 @@ fun ChatScreenCallOverlay(
                         factory = { 
                             val view = rtcManager.localView
                             (view.parent as? android.view.ViewGroup)?.removeView(view)
+                            // Important: Set ZOrderMediaOverlay so local video is above remote video
+                            view.setZOrderMediaOverlay(true)
                             view
                         },
                         modifier = Modifier.fillMaxSize()
@@ -973,7 +965,7 @@ fun ChatScreenCallOverlay(
             }
         }
 
-        // Control Layer
+        // Control Layer (Only visible when NOT in PiP)
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -990,13 +982,13 @@ fun ChatScreenCallOverlay(
                             onClick = onHangup,
                             icon = Icons.Default.CallEnd,
                             color = Color(0xFFEF4444),
-                            size = 72.dp
+                            size = 64.dp
                         )
                         CallActionButton(
                             onClick = onAccept,
                             icon = if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call,
                             color = Color(0xFF22C55E),
-                            size = 72.dp
+                            size = 64.dp
                         )
                     }
                 } else {
@@ -1005,8 +997,8 @@ fun ChatScreenCallOverlay(
                         modifier = Modifier
                             .clip(RoundedCornerShape(32.dp))
                             .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CallActionButton(
@@ -1016,7 +1008,8 @@ fun ChatScreenCallOverlay(
                             },
                             icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
                             color = if (isMuted) Color.White.copy(alpha = 0.1f) else Color.Transparent,
-                            tint = if (isMuted) Color.Red else Color.White
+                            tint = if (isMuted) Color.Red else Color.White,
+                            size = 48.dp
                         )
 
                         if (callData.type == "video") {
@@ -1027,13 +1020,15 @@ fun ChatScreenCallOverlay(
                                 },
                                 icon = if (isVideoOff) Icons.Default.VideocamOff else Icons.Default.Videocam,
                                 color = if (isVideoOff) Color.White.copy(alpha = 0.1f) else Color.Transparent,
-                                tint = if (isVideoOff) Color.Red else Color.White
+                                tint = if (isVideoOff) Color.Red else Color.White,
+                                size = 48.dp
                             )
                             
                             CallActionButton(
                                 onClick = { rtcManager.switchCamera() },
                                 icon = Icons.Default.FlipCameraAndroid,
-                                color = Color.Transparent
+                                color = Color.Transparent,
+                                size = 48.dp
                             )
                         }
 
@@ -1044,13 +1039,15 @@ fun ChatScreenCallOverlay(
                             },
                             icon = if (isSpeakerphoneOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                             color = if (isSpeakerphoneOn) accentYellow.copy(alpha = 0.2f) else Color.Transparent,
-                            tint = if (isSpeakerphoneOn) accentYellow else Color.White
+                            tint = if (isSpeakerphoneOn) accentYellow else Color.White,
+                            size = 48.dp
                         )
 
                         CallActionButton(
                             onClick = onHangup,
                             icon = Icons.Default.CallEnd,
-                            color = Color(0xFFEF4444)
+                            color = Color(0xFFEF4444),
+                            size = 48.dp
                         )
                     }
                 }

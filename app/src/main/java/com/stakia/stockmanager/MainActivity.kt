@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.animation.core.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
@@ -47,31 +48,38 @@ import android.content.Context
 class MainActivity : ComponentActivity() {
     private var isInPipMode = mutableStateOf(false)
     private var currentActiveCall: ActiveCallData? = null
+    
+    // States for notification data
+    private val initialChatIdState = mutableStateOf<String?>(null)
+    private val initialCallTypeState = mutableStateOf<String?>(null)
+    private val initialOfferState = mutableStateOf<String?>(null)
+    private val initialSenderNameState = mutableStateOf<String?>(null)
+    private val initialSenderAvatarState = mutableStateOf<String?>(null)
+    private val autoAcceptState = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SupabaseManager.init(this)
         
-        val type = intent.getStringExtra("notification_type")
-        val senderId = intent.getStringExtra("sender_id")
-        val callType = intent.getStringExtra("call_type")
-        val offer = intent.getStringExtra("offer")
-        val senderName = intent.getStringExtra("sender_name")
-        val senderAvatar = intent.getStringExtra("sender_avatar")
-        val action = intent.getStringExtra("action")
+        handleIntent(intent)
 
         setContent {
             MaterialTheme {
                 MainContent(
-                    initialChatId = if (type == "chat") senderId else null,
-                    initialCallType = if (type == "call") callType else null,
-                    initialOffer = if (type == "call") offer else null,
-                    initialSenderName = if (type == "call") senderName else null,
-                    initialSenderAvatar = if (type == "call") senderAvatar else null,
-                    autoAccept = action == "accept",
+                    initialChatId = initialChatIdState.value,
+                    initialCallType = initialCallTypeState.value,
+                    initialOffer = initialOfferState.value,
+                    initialSenderName = initialSenderNameState.value,
+                    initialSenderAvatar = initialSenderAvatarState.value,
+                    autoAccept = autoAcceptState.value,
                     onCallStateChanged = { call ->
                         currentActiveCall = call
                     }, 
+                    onAutoAcceptProcessed = {
+                        autoAcceptState.value = false
+                        // Also clear intent data to prevent re-triggering
+                        initialOfferState.value = null
+                    },
                     isInPip = isInPipMode.value
                 )
             }
@@ -81,30 +89,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        
-        val type = intent.getStringExtra("notification_type")
-        val senderId = intent.getStringExtra("sender_id")
-        val callType = intent.getStringExtra("call_type")
-        val offer = intent.getStringExtra("offer")
-        val senderName = intent.getStringExtra("sender_name")
-        val senderAvatar = intent.getStringExtra("sender_avatar")
-        val action = intent.getStringExtra("action")
+        handleIntent(intent)
+    }
 
-        setContent {
-            MaterialTheme {
-                MainContent(
-                    initialChatId = if (type == "chat") senderId else null,
-                    initialCallType = if (type == "call") callType else null,
-                    initialOffer = if (type == "call") offer else null,
-                    initialSenderName = if (type == "call") senderName else null,
-                    initialSenderAvatar = if (type == "call") senderAvatar else null,
-                    autoAccept = action == "accept",
-                    onCallStateChanged = { call ->
-                        currentActiveCall = call
-                    }, 
-                    isInPip = isInPipMode.value
-                )
-            }
+    private fun handleIntent(intent: Intent) {
+        val type = intent.getStringExtra("notification_type")
+        initialChatIdState.value = if (type == "chat") intent.getStringExtra("sender_id") else null
+        
+        if (type == "call") {
+            initialCallTypeState.value = intent.getStringExtra("call_type")
+            initialOfferState.value = intent.getStringExtra("offer")
+            initialSenderNameState.value = intent.getStringExtra("sender_name")
+            initialSenderAvatarState.value = intent.getStringExtra("sender_avatar")
+            autoAcceptState.value = intent.getStringExtra("action") == "accept"
         }
     }
 
@@ -140,6 +137,7 @@ fun MainContent(
     initialSenderName: String? = null,
     initialSenderAvatar: String? = null,
     onCallStateChanged: (ActiveCallData?) -> Unit = {},
+    onAutoAcceptProcessed: () -> Unit = {},
     isInPip: Boolean = false,
     autoAccept: Boolean = false
 ) {
@@ -281,6 +279,7 @@ fun MainContent(
         if (autoAccept && activeCallState.value?.status == "incoming" && !autoAcceptTriggered) {
             autoAcceptTriggered = true
             acceptCall()
+            onAutoAcceptProcessed()
         }
     }
 
@@ -428,6 +427,42 @@ fun MainContent(
                 if (!isInPip) {
                     AppBackground(selectedBackground)
                 }
+                
+                // Active Call Bar (Minimized)
+                activeCallState.value?.let { call ->
+                    if (call.isMinimized && !isInPip) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF22C55E))
+                                .clickable { activeCallState.value = call.copy(isMinimized = false) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                .zIndex(10f)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (call.type == "video") Icons.Default.Videocam else Icons.Default.Call,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    "Llamada activa: ${call.partnerName}",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+
                 Box(modifier = Modifier.padding(if (isInPip) PaddingValues(0.dp) else padding)) {
                     if (!isInPip) {
                         when (currentScreen) {
