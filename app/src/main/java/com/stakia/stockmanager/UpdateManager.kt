@@ -1,5 +1,6 @@
 package com.stakia.stockmanager
 
+import com.stakia.stockmanager.BuildConfig
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -102,7 +103,7 @@ object UpdateManager {
 
             val channel = response.bodyAsChannel()
             while (!channel.isClosedForRead) {
-                val packet = channel.readRemaining(DEFAULT_BUFFER_SIZE.toLong())
+                val packet = channel.readRemaining(8192)
                 while (!packet.isEmpty) {
                     file.appendBytes(packet.readBytes())
                 }
@@ -122,14 +123,19 @@ object UpdateManager {
 
     private fun installApk(context: Context, file: File) {
         try {
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            val intent = Intent(Intent.ACTION_VIEW)
-            intent.setDataAndType(uri, "application/vnd.android.package-archive")
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Usar BuildConfig.APPLICATION_ID para asegurar que coincide con el manifest
+            val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
+            val uri = FileProvider.getUriForFile(context, authority, file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "Error al iniciar instalación", Toast.LENGTH_LONG).show()
+            android.util.Log.e("UpdateManager", "Error installing APK", e)
+            Toast.makeText(context, "Error al iniciar instalación: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
 
