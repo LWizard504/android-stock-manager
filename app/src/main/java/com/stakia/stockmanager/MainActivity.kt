@@ -642,8 +642,9 @@ fun MainContent(
                 }
             }
         }
-        }
     }
+}
+}
 }
 
 @Composable

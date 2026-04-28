@@ -90,10 +90,11 @@ object UpdateManager {
 
             val response = client.get(APK_URL) {
                 onDownload { bytesSentTotal, contentLength ->
-                    if (contentLength > 0) {
-                        downloadProgress = bytesSentTotal.toFloat() / contentLength
+                    val total = contentLength ?: 0L
+                    if (total > 0L) {
+                        downloadProgress = bytesSentTotal.toFloat() / total.toFloat()
                         val downloadedMB = bytesSentTotal / (1024 * 1024)
-                        val totalMB = contentLength / (1024 * 1024)
+                        val totalMB = total / (1024 * 1024)
                         downloadInfo = "Descargando: $downloadedMB MB / $totalMB MB"
                     }
                 }
