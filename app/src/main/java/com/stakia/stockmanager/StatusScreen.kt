@@ -185,8 +185,8 @@ fun StatusScreen(onOpenDrawer: () -> Unit) {
             CenterAlignedTopAppBar(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("NEURAL NODE STATUS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 2.sp)
-                        Text("TELEMETRY_SCANNER", color = saasYellow, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("ESTADO DEL SISTEMA", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 2.sp)
+                        Text("ESCANEO DE RED", color = saasYellow, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     }
                 },
                 navigationIcon = {
@@ -194,15 +194,11 @@ fun StatusScreen(onOpenDrawer: () -> Unit) {
                         CustomMenuIcon()
                     }
                 },
-                actions = {
-                    IconButton(onClick = { scope.launch { checkStatus() } }, enabled = !isChecking) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = if (isChecking) Color.Gray else saasYellow)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = pureBlack)
+                actions = {},
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         },
-        containerColor = pureBlack
+        containerColor = Color.Transparent
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
@@ -211,7 +207,7 @@ fun StatusScreen(onOpenDrawer: () -> Unit) {
         ) {
             item {
                 Text(
-                    "INFRASTRUCTURE TELEMETRY",
+                    "DETALLES TÉCNICOS",
                     color = Color.Gray,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
@@ -247,8 +243,8 @@ fun StatusScreen(onOpenDrawer: () -> Unit) {
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("ALL SYSTEMS\nNOMINAL", color = Color.Black, fontSize = 28.sp, fontWeight = FontWeight.Black, lineHeight = 30.sp)
-                        Text("Network integrity is at 99.98%. No cluster fragmentation detected.", color = Color.Black.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                        Text("SISTEMAS\nOPERATIVOS", color = Color.Black, fontSize = 28.sp, fontWeight = FontWeight.Black, lineHeight = 30.sp)
+                        Text("La integridad de la red es del 99.98%. Sin fragmentación detectada.", color = Color.Black.copy(alpha = 0.6f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
                     }
                 }
             }
@@ -293,6 +289,24 @@ fun StatusScreen(onOpenDrawer: () -> Unit) {
                         }
                     }
                 }
+            }
+            
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = { scope.launch { checkStatus() } },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = saasYellow),
+                    shape = RoundedCornerShape(16.dp),
+                    enabled = !isChecking
+                ) {
+                    if (isChecking) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
+                    } else {
+                        Text("INICIAR DIAGNÓSTICO", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }

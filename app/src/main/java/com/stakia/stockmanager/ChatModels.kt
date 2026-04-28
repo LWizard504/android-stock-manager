@@ -2,6 +2,7 @@ package com.stakia.stockmanager
 
 import kotlinx.serialization.Serializable
 import java.util.UUID
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class Profile(
@@ -42,6 +43,44 @@ data class ChatMessage(
     val deleted_for_users: List<String>? = emptyList()
 )
 
+
+@Serializable
+data class CallLog(
+    val id: String = UUID.randomUUID().toString(),
+    val caller_id: String,
+    val receiver_id: String,
+    val type: String, // voice, video
+    val status: String, // missed, completed, cancelled
+    val duration: Int = 0,
+    val created_at: String = java.time.Instant.now().toString(),
+    val caller_name: String? = null,
+    val receiver_name: String? = null,
+    val caller_avatar: String? = null,
+    val receiver_avatar: String? = null,
+    val is_group: Boolean = false,
+    val group_id: String? = null
+)
+
 fun getConversationId(uid1: String, uid2: String): String {
     return listOf(uid1, uid2).sorted().joinToString("--")
 }
+
+data class ActiveCallData(
+    val type: String, // voice or video
+    var status: String, // calling, incoming, connected
+    val partnerName: String,
+    val offer: JsonObject? = null,
+    val partnerAvatar: String? = null,
+    val partnerId: String = "",
+    val isGroup: Boolean = false,
+    val groupId: String? = null,
+    var logId: String? = null
+)
+
+data class UserPresence(
+    val isTyping: Boolean = false,
+    val isRecording: Boolean = false,
+    val typingIn: String? = null,
+    val recordingIn: String? = null,
+    val name: String? = null
+)

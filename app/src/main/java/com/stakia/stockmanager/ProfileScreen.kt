@@ -28,12 +28,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.horizontalScroll
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onOpenDrawer: () -> Unit) {
+fun ProfileScreen(onOpenDrawer: () -> Unit, selectedBg: String, onBgChange: (String) -> Unit) {
     val context = LocalContext.current
     val saasYellow = Color(0xFFEAB308)
     val pureBlack = Color(0xFF000000)
@@ -100,10 +101,10 @@ fun ProfileScreen(onOpenDrawer: () -> Unit) {
                         CustomMenuIcon()
                     }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = pureBlack)
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         },
-        containerColor = pureBlack
+        containerColor = Color.Transparent
     ) { padding ->
         Column(
             modifier = Modifier
@@ -221,6 +222,72 @@ fun ProfileScreen(onOpenDrawer: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            
+            // Personalization Section
+            DashboardCard(title = "PERSONALIZACIÓN", accentColor = saasYellow) {
+                Column(modifier = Modifier.padding(top = 16.dp)) {
+                    Text("FONDO DE PANTALLA", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        BackgroundOption("Predeterminado", "pure_black", selectedBg == "pure_black", saasYellow) { onBgChange("pure_black") }
+                        BackgroundOption("Pulso Neural", "neural_pulse", selectedBg == "neural_pulse", saasYellow) { onBgChange("neural_pulse") }
+                        BackgroundOption("Ondas", "neural_waves", selectedBg == "neural_waves", saasYellow) { onBgChange("neural_waves") }
+                        BackgroundOption("Ecualizador", "digital_eq", selectedBg == "digital_eq", saasYellow) { onBgChange("digital_eq") }
+                        BackgroundOption("Rejilla Digital", "digital_grid", selectedBg == "digital_grid", saasYellow) { onBgChange("digital_grid") }
+                        BackgroundOption("Nebulosa", "deep_nebula", selectedBg == "deep_nebula", saasYellow) { onBgChange("deep_nebula") }
+                        BackgroundOption("Circuito", "circuit", selectedBg == "circuit", saasYellow) { onBgChange("circuit") }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // App Settings Section
+            Spacer(modifier = Modifier.height(24.dp))
+            DashboardCard(title = "AJUSTES DE APLICACIÓN", accentColor = saasYellow) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 16.dp)) {
+                    SettingItem(
+                        title = "Notificaciones Neurales",
+                        subtitle = "Alertas de mensajes y llamadas",
+                        icon = Icons.Default.Notifications,
+                        accentColor = saasYellow,
+                        trailing = {
+                            var checked by remember { mutableStateOf(true) }
+                            Switch(
+                                checked = checked,
+                                onCheckedChange = { checked = it },
+                                colors = SwitchDefaults.colors(checkedThumbColor = saasYellow)
+                            )
+                        }
+                    )
+                    
+                    SettingItem(
+                        title = "Buscar Actualizaciones",
+                        subtitle = "Versión actual: 1.0.4",
+                        icon = Icons.Default.SystemUpdate,
+                        accentColor = saasYellow,
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val update = UpdateManager.checkForUpdates("1.0.4")
+                                    if (update != null) {
+                                        UpdateManager.downloadAndInstall(context, update.download_url, update.version, scope)
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Ya tienes la última versión", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Error al buscar actualizaciones", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
 
             Button(
                 onClick = { onSave() },
@@ -232,9 +299,55 @@ fun ProfileScreen(onOpenDrawer: () -> Unit) {
                 if (isSaving) {
                     CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
                 } else {
-                    Text("ACTUALIZAR NODO", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("GUARDAR CAMBIOS", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
         }
+    }
+}
+
+@Composable
+fun SettingItem(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, accentColor: Color, trailing: @Composable (() -> Unit)? = null, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF111111)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(subtitle, color = Color.Gray, fontSize = 11.sp)
+        }
+        trailing?.invoke()
+    }
+}
+@Composable
+fun BackgroundOption(name: String, id: String, isSelected: Boolean, accentColor: Color, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(80.dp).clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(60.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (isSelected) accentColor.copy(alpha = 0.2f) else Color(0xFF0A0A0A))
+                .border(1.dp, if (isSelected) accentColor else Color(0xFF1A1A1A), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (isSelected) Icons.Default.CheckCircle else Icons.Default.Palette,
+                contentDescription = null,
+                tint = if (isSelected) accentColor else Color.Gray
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(name, color = if (isSelected) Color.White else Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }

@@ -300,15 +300,6 @@ fun SidebarItem(name: String, icon: ImageVector, isSelected: Boolean, accentColo
     }
 }
 
-@Composable
-fun CustomMenuIcon() {
-    Canvas(modifier = Modifier.size(24.dp)) {
-        val strokeWidth = 2.dp.toPx()
-        drawLine(color = Color.White, start = Offset(4.dp.toPx(), 7.dp.toPx()), end = Offset(20.dp.toPx(), 7.dp.toPx()), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-        drawLine(color = Color.White, start = Offset(4.dp.toPx(), 12.dp.toPx()), end = Offset(16.dp.toPx(), 12.dp.toPx()), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-        drawLine(color = Color.White, start = Offset(4.dp.toPx(), 17.dp.toPx()), end = Offset(12.dp.toPx(), 17.dp.toPx()), strokeWidth = strokeWidth, cap = StrokeCap.Round)
-    }
-}
 
 @Composable
 fun DashboardCard(title: String, accentColor: Color, rightContent: @Composable (() -> Unit)? = null, isVerticalBar: Boolean = false, content: @Composable () -> Unit) {

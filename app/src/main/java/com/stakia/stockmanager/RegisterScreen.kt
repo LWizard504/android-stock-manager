@@ -90,14 +90,14 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
-                "REGISTRATION",
+                "REGISTRO DE NODO",
                 color = Color.White,
                 fontWeight = FontWeight.Black,
                 fontSize = 22.sp,
                 letterSpacing = (-1).sp
             )
             Text(
-                "CREATE YOUR ACCOUNT",
+                "CREA TU CUENTA DE ACCESO",
                 color = labelGray,
                 fontWeight = FontWeight.Bold,
                 fontSize = 10.sp,
@@ -131,7 +131,7 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                 }
             }
             Text(
-                "UPLOAD PROFILE PICTURE",
+                "SUBIR FOTO DE PERFIL",
                 color = labelGray,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Black,
@@ -141,14 +141,14 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 
             // Fields
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                CustomTextField(value = fullName, onValueChange = { fullName = it }, label = "FULL NAME", placeholder = "John Doe")
-                CustomTextField(value = companyName, onValueChange = { companyName = it }, label = "ORGANIZATION / COMPANY", placeholder = "Stakia Corp")
-                CustomTextField(value = email, onValueChange = { email = it }, label = "CORPORATE EMAIL", placeholder = "ceo@company.com")
-                CustomTextField(value = phone, onValueChange = { phone = it }, label = "PHONE NUMBER", placeholder = "+1 (555) 000-0000")
+                CustomTextField(value = fullName, onValueChange = { fullName = it }, label = "NOMBRE COMPLETO", placeholder = "Ej: Juan Pérez")
+                CustomTextField(value = companyName, onValueChange = { companyName = it }, label = "EMPRESA / ORGANIZACIÓN", placeholder = "Ej: Mi Empresa S.A.")
+                CustomTextField(value = email, onValueChange = { email = it }, label = "CORREO ELECTRÓNICO", placeholder = "correo@empresa.com")
+                CustomTextField(value = phone, onValueChange = { phone = it }, label = "TELÉFONO", placeholder = "+1 (555) 000-0000")
                 
                 // Password
                 Column {
-                    Text("PASSWORD", color = labelGray, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("CONTRASEÑA", color = labelGray, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 8.dp))
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
@@ -163,7 +163,7 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = cardBg,
                             unfocusedContainerColor = cardBg,
-                            focusedBorderColor = saasRed,
+                            focusedBorderColor = Color(0xFFEAB308),
                             unfocusedBorderColor = darkGray,
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
@@ -174,7 +174,7 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 
                 // Confirm Identity
                 Column {
-                    Text("CONFIRM IDENTITY", color = labelGray, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    Text("CONFIRMAR CONTRASEÑA", color = labelGray, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 8.dp))
                     OutlinedTextField(
                         value = confirmPassword,
                         onValueChange = { confirmPassword = it },
@@ -189,7 +189,7 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = cardBg,
                             unfocusedContainerColor = cardBg,
-                            focusedBorderColor = saasRed,
+                            focusedBorderColor = Color(0xFFEAB308),
                             unfocusedBorderColor = darkGray,
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
@@ -206,10 +206,10 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                 Checkbox(
                     checked = acceptTerms,
                     onCheckedChange = { acceptTerms = it },
-                    colors = CheckboxDefaults.colors(checkedColor = saasRed, uncheckedColor = darkGray)
+                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFFEAB308), uncheckedColor = darkGray)
                 )
                 Text(
-                    "I accept the Terms and Conditions and the administrative protocols of the Stakia Solutions network.",
+                    "Acepto los Términos y Condiciones y los protocolos administrativos de la red Stakia Solutions.",
                     color = labelGray,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 12.dp)
@@ -220,10 +220,10 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                 Checkbox(
                     checked = authorizeData,
                     onCheckedChange = { authorizeData = it },
-                    colors = CheckboxDefaults.colors(checkedColor = saasRed, uncheckedColor = darkGray)
+                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFFEAB308), uncheckedColor = darkGray)
                 )
                 Text(
-                    "I authorize the processing of my corporate data according to the Privacy Policy.",
+                    "Autorizo el tratamiento de mis datos corporativos según la Política de Privacidad.",
                     color = labelGray,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 12.dp)
@@ -278,22 +278,22 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
                                 }
                                 onRegisterSuccess()
                             } catch (e: Exception) {
-                                errorMessage = e.localizedMessage ?: "Registration Failed"
+                                errorMessage = "Fallo en el registro: ${e.localizedMessage}"
                             } finally {
                                 isLoading = false
                             }
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = saasRed),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEAB308)),
+                shape = RoundedCornerShape(16.dp),
                 enabled = !isLoading && acceptTerms && authorizeData
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
                 } else {
-                    Text("CREATE ACCOUNT", color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.sp)
+                    Text("CREAR CUENTA", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -305,9 +305,9 @@ fun RegisterScreen(onBack: () -> Unit, onRegisterSuccess: () -> Unit) {
 
             // Footer
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("AUTHORIZED PERSONNEL ONLY ", color = Color(0xFF333333), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text("SOLO PERSONAL AUTORIZADO ", color = Color(0xFF333333), fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Text(
-                    "LOGIN",
+                    "ACCEDER",
                     color = Color.White,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,

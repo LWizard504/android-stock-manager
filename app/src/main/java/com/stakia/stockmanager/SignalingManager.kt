@@ -116,7 +116,18 @@ object SignalingManager {
         }
     }
 
-    fun sendSignal(to: String, fromId: String, fromName: String, fromAvatar: String?, type: String, offer: JSONObject?, answer: JSONObject?, candidate: JSONObject?, isGroup: Boolean = false, groupId: String? = null) {
+    fun sendSignal(
+        to: String, 
+        fromId: String, 
+        fromName: String, 
+        fromAvatar: String? = null, 
+        type: String, 
+        offer: JSONObject? = null, 
+        answer: JSONObject? = null, 
+        candidate: JSONObject? = null, 
+        isGroup: Boolean = false, 
+        groupId: String? = null
+    ) {
         val fromObj = JSONObject().apply {
             put("id", fromId)
             put("name", fromName)

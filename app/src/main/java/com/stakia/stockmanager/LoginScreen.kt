@@ -210,7 +210,6 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onRegisterRequest: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Sign In Button
                 Button(
                     onClick = {
                         if (email.isNotBlank() && password.isNotBlank()) {
@@ -224,28 +223,24 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onRegisterRequest: () -> Unit) {
                                     }
                                     onLoginSuccess()
                                 } catch (e: Exception) {
-                                    // Mostramos el mensaje real del error (ej. "Invalid login credentials")
-                                    errorMessage = e.localizedMessage ?: e.message ?: "Unknown Auth Error"
-                                    println("AUTH_DEBUG: $errorMessage")
+                                    errorMessage = "Error de acceso: Verifica tus credenciales"
                                 } finally {
                                     isLoading = false
                                 }
                             }
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = saasRed),
-                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEAB308)),
+                    shape = RoundedCornerShape(16.dp),
                     enabled = !isLoading
                 ) {
                     if (isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.Black)
                     } else {
                         Text(
-                            "Sign In",
-                            color = Color.White,
+                            "INICIAR SESIÓN",
+                            color = Color.Black,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
@@ -269,12 +264,12 @@ fun LoginScreen(onLoginSuccess: () -> Unit, onRegisterRequest: () -> Unit) {
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        "Don't have an account? ",
+                        "¿No tienes cuenta? ",
                         color = textGray,
                         fontSize = 13.sp
                     )
                     Text(
-                        "Request Access",
+                        "Solicitar Acceso",
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
