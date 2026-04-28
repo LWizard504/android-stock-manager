@@ -654,7 +654,6 @@ fun ConversationScreen(
             SignalingManager.fetchHistory(targetId, currentUserId, isGroupChat) { fetched ->
                 scope.launch(Dispatchers.Main) {
                     messages = fetched.reversed()
-                    Toast.makeText(context, "Neural Link: ${fetched.size} mensajes recuperados (vía Bridge)", Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) { 

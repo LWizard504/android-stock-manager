@@ -51,6 +51,7 @@
         </service>
 
         <receiver android:name=".CallActionReceiver" android:exported="false" />
+        <receiver android:name=".ReplyReceiver" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

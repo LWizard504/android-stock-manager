@@ -136,7 +136,31 @@ class PushNotificationService : FirebaseMessagingService() {
         } else {
             builder.setContentIntent(pendingIntent)
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(message))
-            // Quick Reply could be added here if needed
+            
+            if (senderId != null) {
+                // RemoteInput for Quick Reply
+                val remoteInput = androidx.core.app.RemoteInput.Builder("key_text_reply")
+                    .setLabel("Escribe una respuesta...")
+                    .build()
+
+                val replyIntent = Intent(this, ReplyReceiver::class.java).apply {
+                    putExtra("sender_id", senderId)
+                    putExtra("notification_id", notificationId)
+                }
+                
+                val replyPendingIntent = PendingIntent.getBroadcast(
+                    this, notificationId, replyIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE // Required for RemoteInput
+                )
+
+                val replyAction = NotificationCompat.Action.Builder(
+                    android.R.drawable.ic_menu_send,
+                    "Responder",
+                    replyPendingIntent
+                ).addRemoteInput(remoteInput).build()
+
+                builder.addAction(replyAction)
+            }
         }
 
         notificationManager.notify(notificationId, builder.build())

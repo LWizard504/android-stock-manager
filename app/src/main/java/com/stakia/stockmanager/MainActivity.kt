@@ -319,6 +319,19 @@ fun MainContent(
                             currentScreen = "login"
                         } else {
                             userProfile = profile
+                            // Register FCM Token for notifications
+                            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    val token = task.result
+                                    scope.launch {
+                                        try {
+                                            SupabaseManager.client.postgrest.from("profiles").update({
+                                                set("fcm_token", token)
+                                            }) { filter { eq("id", profile.id) } }
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            }
                         }
                     }
                 }
