@@ -706,6 +706,17 @@ fun DrawerContent(userProfile: Profile?, onNavigate: (String) -> Unit) {
                 }
             }
         }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            "VERSION ${BuildConfig.VERSION_NAME}",
+            color = Color.DarkGray,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
     }
 }
 
