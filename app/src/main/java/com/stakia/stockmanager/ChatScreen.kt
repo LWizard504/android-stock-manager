@@ -1319,7 +1319,15 @@ fun MessageBubble(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.End)) {
                     Text(
-                        msg.created_at?.let { if (it.length >= 16) it.substring(11, 16) else it.takeLast(5) } ?: "", 
+                        msg.created_at?.let { iso ->
+                            try {
+                                val instant = java.time.Instant.parse(iso)
+                                val local = instant.atZone(java.time.ZoneId.systemDefault())
+                                local.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                            } catch (e: Exception) {
+                                if (iso.length >= 16) iso.substring(11, 16) else iso.takeLast(5)
+                            }
+                        } ?: "", 
                         color = Color.Gray, 
                         fontSize = 9.sp
                     )

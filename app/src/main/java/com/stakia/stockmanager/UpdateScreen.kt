@@ -132,7 +132,27 @@ fun UpdateScreen() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
+
+            if (UpdateManager.downloadProgress >= 1f) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                TextButton(
+                    onClick = {
+                        val file = java.io.File(context.cacheDir, "StockManagerUpdate.apk")
+                        UpdateManager.installApk(context, file)
+                    },
+                    modifier = Modifier.padding(8.dp)
+                ) {
+                    Text(
+                        "Si no se ha descargado/instalado haz clic aquí",
+                        color = saasYellow,
+                        fontSize = 12.sp,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 "Por favor, no cierres la aplicación durante el proceso.",

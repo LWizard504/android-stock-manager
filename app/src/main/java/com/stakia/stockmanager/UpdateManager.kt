@@ -90,7 +90,7 @@ object UpdateManager {
                 }
             }
 
-            downloadInfo = "Descarga Finalizada. Abriendo instalador..."
+            downloadInfo = "DESCARGA TERMINADA. Abriendo instalador..."
             installApk(context, file)
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
@@ -103,7 +103,7 @@ object UpdateManager {
         }
     }
 
-    private fun installApk(context: Context, file: File) {
+    internal fun installApk(context: Context, file: File) {
         try {
             val authority = "com.stakia.stockmanager.updates.fileprovider"
             if (!file.exists() || file.length() == 0L) {
