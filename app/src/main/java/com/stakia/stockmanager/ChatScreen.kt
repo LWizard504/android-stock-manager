@@ -342,7 +342,7 @@ fun ChatScreen(
                     groups = groups,
                     initialChatId = initialChatId,
                     userProfile = userProfile,
-                    onInitiateCall = { id, video, name, avatar -> initiateCall(id, video, name, avatar, id.contains("group")) },
+                    onInitiateCall = { id, video, name, avatar, isGrp -> initiateCall(id, video, name, avatar, isGrp) },
                     onCreateGroup = {
                         showCreateGroup = true
                     },
