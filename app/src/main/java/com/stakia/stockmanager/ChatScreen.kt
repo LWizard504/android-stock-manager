@@ -282,6 +282,8 @@ fun ChatScreen(
                 filter { eq("user_id", currentUserId) }
             }.decodeList<JsonObject>()
             
+            android.util.Log.d("ChatScreen", "Found ${memberships.size} group memberships for $currentUserId")
+            
             val groupIds = memberships.mapNotNull { it["group_id"]?.jsonPrimitive?.contentOrNull }
             
             if (groupIds.isNotEmpty()) {
@@ -290,6 +292,8 @@ fun ChatScreen(
                         isIn("id", groupIds)
                     }
                 }.decodeList<ChatGroup>()
+                
+                android.util.Log.d("ChatScreen", "Fetched ${fetchedGroups.size} group details")
                 
                 groups = fetchedGroups.map { group ->
                     try {
@@ -412,47 +416,44 @@ fun ChatListScreen(
     val currentUserId = userProfile?.id ?: ""
     val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableStateOf("CHATS") }
-    var profiles by remember { mutableStateOf<List<Profile>>(emptyList()) }
+    var chatProfiles by remember { mutableStateOf<List<Profile>>(emptyList()) }
     var callLogs by remember { mutableStateOf<List<CallLog>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
         try {
             if (selectedTab == "CHATS") {
+                // Load Groups for the current user
+                val memberships = SupabaseManager.client.postgrest.from("chat_group_members").select {
+                    filter { eq("user_id", currentUserId) }
+                }.decodeList<JsonObject>()
+                
+                val groupIds = memberships.mapNotNull { it["group_id"]?.jsonPrimitive?.contentOrNull }
+                if (groupIds.isNotEmpty()) {
+                    // Groups are handled by the parent state
+                }
+                
+                // Load Profiles/Chats
                 val fetchedProfiles = SupabaseManager.client.postgrest.from("profiles").select {
                     filter { Profile::id neq currentUserId }
                 }.decodeList<Profile>()
                 
-            if (fetchedProfiles.isNotEmpty()) {
-                SignalingManager.fetchRecentChats(currentUserId) { lastMsgs ->
-                    scope.launch(Dispatchers.Main) {
-                        val profilesWithMessages = fetchedProfiles.map { profile ->
-                            val lastMsg = lastMsgs[profile.id]
-                            profile.copy(
-                                last_message = lastMsg?.content ?: "Canal seguro listo",
-                                last_message_at = lastMsg?.created_at
-                            )
-                        }
-                        profiles = profilesWithMessages.sortedByDescending { it.last_message_at }
-                    }
-                }
+                android.util.Log.d("ChatScreen", "Fetched ${fetchedProfiles.size} profiles")
                 
-                // Real-time updates for last message in the list
-                val channel = SupabaseManager.client.realtime.channel("chat_list")
-                val broadcastFlow = channel.broadcastFlow<ChatMessage>("new_message")
-                scope.launch {
-                    broadcastFlow.collect { msg ->
-                        if (msg.recipient_id == currentUserId || msg.sender_id == currentUserId) {
-                            val partnerId = if (msg.sender_id == currentUserId) msg.recipient_id else msg.sender_id
-                            profiles = profiles.map { p ->
-                                if (p.id == partnerId) p.copy(last_message = msg.content, last_message_at = msg.created_at)
-                                else p
+                if (fetchedProfiles.isNotEmpty()) {
+                    val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
+                    SignalingManager.fetchRecentChats(currentUserId, token) { lastMsgs ->
+                        scope.launch(Dispatchers.Main) {
+                            chatProfiles = fetchedProfiles.map { profile ->
+                                val lastMsg = lastMsgs[profile.id]
+                                profile.copy(
+                                    last_message = lastMsg?.content ?: "Canal seguro listo",
+                                    last_message_at = lastMsg?.created_at
+                                )
                             }.sortedByDescending { it.last_message_at }
                         }
                     }
                 }
-                channel.subscribe()
-            }
-            } else {
+            } else if (selectedTab == "LLAMADAS") {
                 callLogs = SupabaseManager.client.postgrest.from("call_logs").select {
                     filter {
                         or {
@@ -463,7 +464,9 @@ fun ChatListScreen(
                     order("created_at", Order.DESCENDING)
                 }.decodeList<CallLog>()
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { 
+            e.printStackTrace() 
+        }
     }
 
     Scaffold(
@@ -490,21 +493,6 @@ fun ChatListScreen(
         containerColor = Color.Transparent
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Integrated Active Call Bar
-            activeCall?.let { call ->
-                if (call.status == "connected" || call.status == "connecting" || call.status == "calling") {
-                    ActiveCallBar(
-                        callData = call,
-                        onExpand = { onActiveCallChange(call.copy(isMinimized = false)) },
-                        onHangup = {
-                            SignalingManager.sendHangup(call.partnerId, userProfile?.id ?: "")
-                            rtcManager.stopAll()
-                            onActiveCallChange(null)
-                        }
-                    )
-                }
-            }
-            
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                     item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -516,8 +504,8 @@ fun ChatListScreen(
                             item { Spacer(modifier = Modifier.height(24.dp)) }
                         }
                         
-                        item { SectionHeader("CHATS DIRECTOS", profiles.size.toString()) }
-                        items(profiles) { profile ->
+                        item { SectionHeader("CHATS DIRECTOS", chatProfiles.size.toString()) }
+                        items(chatProfiles) { profile ->
                             UserItem(
                                 profile = profile, 
                                 isOnline = onlineUsers.contains(profile.id), 
@@ -887,7 +875,8 @@ fun ConversationScreen(
             val isGroupChat = group != null
             val targetId = if (isGroupChat) group!!.id else profile!!.id
             
-            SignalingManager.fetchHistory(targetId, currentUserId, isGroupChat) { fetched ->
+            val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
+            SignalingManager.fetchHistory(targetId, currentUserId, token, isGroupChat) { fetched ->
                 scope.launch(Dispatchers.Main) {
                     messages = fetched.reversed()
                 }
@@ -1008,21 +997,6 @@ fun ConversationScreen(
         containerColor = Color.Transparent
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Re-integrated Active Call Bar (below header)
-            activeCall?.let { call ->
-                if (call.isMinimized && (call.status == "connected" || call.status == "connecting" || call.status == "calling")) {
-                    ActiveCallBar(
-                        callData = call,
-                        onExpand = { onActiveCallChange(call.copy(isMinimized = false)) },
-                        onHangup = {
-                            SignalingManager.sendHangup(call.partnerId, userProfile?.id ?: "")
-                            rtcManager.stopAll()
-                            onActiveCallChange(null)
-                        }
-                    )
-                }
-            }
-            
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(16.dp),

@@ -104,17 +104,18 @@ class PushNotificationService : FirebaseMessagingService() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
         if (type == "call") {
-            // Accept Action
-            val acceptIntent = Intent(this, CallActionReceiver::class.java).apply {
-                action = "ACTION_ACCEPT_CALL"
-                putExtra("notification_id", notificationId)
+            // Accept Action - Direct Activity Start (No trampoline for Android 12+)
+            val acceptIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("notification_type", "call")
                 putExtra("sender_id", senderId)
                 putExtra("call_type", callType)
                 putExtra("offer", offer)
                 putExtra("sender_name", senderName)
                 putExtra("sender_avatar", senderAvatar)
+                putExtra("action", "accept")
             }
-            val acceptPendingIntent = PendingIntent.getBroadcast(this, 1, acceptIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val acceptPendingIntent = PendingIntent.getActivity(this, 1, acceptIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             
             // Decline Action
             val declineIntent = Intent(this, CallActionReceiver::class.java).apply {

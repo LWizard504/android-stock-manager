@@ -5,6 +5,14 @@ import android.content.Context
 import android.content.Intent
 import android.app.NotificationManager
 import android.util.Log
+import io.github.jan.supabase.auth.auth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -15,28 +23,37 @@ class CallActionReceiver : BroadcastReceiver() {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(notificationId)
 
-        if (action == "ACTION_ACCEPT_CALL") {
-            Log.d("CallAction", "Call accepted from notification")
-            val mainIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("notification_type", "call")
-                putExtra("sender_id", senderId)
-                putExtra("call_type", intent.getStringExtra("call_type"))
-                putExtra("offer", intent.getStringExtra("offer"))
-                putExtra("sender_name", intent.getStringExtra("sender_name"))
-                putExtra("sender_avatar", intent.getStringExtra("sender_avatar"))
-                putExtra("action", "accept")
+        if (action == "ACTION_DECLINE_CALL") {
+            Log.d("CallAction", "Call declined from notification - Signaling background")
+            
+            val targetId = senderId ?: return
+            
+            // Send hangup signal in background
+            val scope = CoroutineScope(Dispatchers.IO)
+            scope.launch {
+                try {
+                    val client = OkHttpClient()
+                    val token = SupabaseManager.client.auth.currentAccessTokenOrNull()
+                    
+                    if (token != null) {
+                        val json = org.json.JSONObject().apply {
+                            put("to", targetId)
+                        }
+                        
+                        val request = Request.Builder()
+                            .url("https://api-stockm-call-service.onrender.com/send-hangup")
+                            .post(json.toString().toRequestBody("application/json".toMediaType()))
+                            .addHeader("Authorization", "Bearer $token")
+                            .build()
+                        
+                        client.newCall(request).execute().use { response ->
+                            Log.d("CallAction", "Hangup signal sent: ${response.isSuccessful}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("CallAction", "Error sending hangup signal", e)
+                }
             }
-            context.startActivity(mainIntent)
-        } else if (action == "ACTION_DECLINE_CALL") {
-            Log.d("CallAction", "Call declined from notification")
-            val mainIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("notification_type", "call")
-                putExtra("sender_id", senderId)
-                putExtra("action", "decline")
-            }
-            context.startActivity(mainIntent)
         }
     }
 

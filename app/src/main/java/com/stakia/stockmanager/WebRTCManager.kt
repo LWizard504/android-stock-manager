@@ -182,8 +182,11 @@ class WebRTCManager(private val context: Context) {
                 }
             }
             override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
-            override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) {
-                if (p0 == PeerConnection.IceConnectionState.DISCONNECTED || p0 == PeerConnection.IceConnectionState.FAILED) {
+            override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
+                android.util.Log.d("WebRTC", "ICE State: $newState for $remoteUserId")
+                if (newState == PeerConnection.IceConnectionState.FAILED || 
+                    newState == PeerConnection.IceConnectionState.DISCONNECTED) {
+                    android.util.Log.e("WebRTC", "Connection failed, stopping...")
                     removePeer(remoteUserId)
                 }
             }

@@ -215,11 +215,15 @@ object SignalingManager {
     fun fetchHistory(
         chatId: String, 
         userId: String, 
+        token: String,
         isGroup: Boolean, 
         onResult: (List<ChatMessage>) -> Unit
     ) {
-        val url = "$SERVER_URL/get-history?chatId=$chatId&userId=$userId&isGroup=$isGroup"
-        val request = okhttp3.Request.Builder().url(url).build()
+        val url = "$SERVER_URL/get-history?chatId=$chatId&isGroup=$isGroup"
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
         val client = okhttp3.OkHttpClient()
         
         client.newCall(request).enqueue(object : okhttp3.Callback {
@@ -244,10 +248,14 @@ object SignalingManager {
 
     fun fetchRecentChats(
         userId: String, 
+        token: String,
         onResult: (Map<String, ChatMessage>) -> Unit
     ) {
-        val url = "$SERVER_URL/get-recent-chats?userId=$userId"
-        val request = okhttp3.Request.Builder().url(url).build()
+        val url = "$SERVER_URL/get-recent-chats"
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
         val client = okhttp3.OkHttpClient()
         
         client.newCall(request).enqueue(object : okhttp3.Callback {

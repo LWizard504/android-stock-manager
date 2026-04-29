@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.animation.core.*
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import io.github.jan.supabase.auth.auth
@@ -111,6 +113,14 @@ class MainActivity : ComponentActivity() {
                 val currentUserId = SupabaseManager.client.auth.currentUserOrNull()?.id ?: ""
                 SignalingManager.sendHangup(senderId, currentUserId)
             }
+            
+            // CRITICAL: Clear intent extras after consumption to prevent residual state
+            intent.removeExtra("notification_type")
+            intent.removeExtra("action")
+            intent.removeExtra("offer")
+        } else {
+            // Reset auto-accept if the intent is not a call action
+            autoAcceptState.value = false
         }
     }
 
@@ -225,8 +235,10 @@ fun MainContent(
     var permissionRequestTrigger by remember { mutableStateOf(false) }
 
     fun acceptCall() {
-        val call = activeCallState.value
-        if (call != null) {
+        val call = activeCallState.value ?: return
+        activeCallState.value = call.copy(status = "connecting", isMinimized = false)
+        
+        scope.launch {
             val hasCamera = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
             val hasAudio = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
             
@@ -305,7 +317,7 @@ fun MainContent(
         }
     }
 
-
+    // Now correctly inside MainContent composable
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         if (results.values.all { it }) {
             scope.launch {
@@ -604,11 +616,17 @@ fun MainContent(
                     }
                 }
 
-                // Global Active Call Bar - Always on top (except in chat where it's integrated below headers)
+                // Global Active Call Bar - Only show when minimized or in other screens
                 activeCallState.value?.let { call ->
-                    if (call.isMinimized && !isInPip && currentScreen != "chat") {
-                        // Offset the bar so it doesn't cover the TopAppBar (Menu button)
-                        Box(modifier = Modifier.fillMaxWidth().padding(top = 80.dp).zIndex(999f)) {
+                    val shouldShowBar = call.isMinimized || (currentScreen != "chat" && call.status != "incoming")
+                    if (!isInPip && shouldShowBar) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (currentScreen == "dashboard") 12.dp else 56.dp) 
+                                .zIndex(999f),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
                             ActiveCallBar(
                                 callData = call,
                                 onExpand = { activeCallState.value = call.copy(isMinimized = false) },
@@ -762,57 +780,71 @@ fun ActiveCallBar(
     onHangup: () -> Unit = {},
     onAccept: () -> Unit = {}
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "call_bar")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
+        label = "alpha"
+    )
+    
+    val barColor = if (callData.status == "incoming") Color(0xFFEAB308) else Color(0xFF22C55E)
+    
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable { onExpand() },
-        color = Color(0xFF22C55E),
-        tonalElevation = 8.dp
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+            .clickable { onExpand() }
+            .graphicsLayer { alpha = if (callData.status == "incoming") pulseAlpha else 1f },
+        color = barColor,
+        tonalElevation = 12.dp,
+        shadowElevation = 6.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 if (callData.type == "video") Icons.Default.Videocam else Icons.Default.Call,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(16.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "LLAMADA CON ${callData.partnerName.uppercase()}",
+                    callData.partnerName.uppercase(),
                     color = Color.White,
                     fontWeight = FontWeight.Black,
                     fontSize = 11.sp,
-                    letterSpacing = 1.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1
                 )
                 Text(
-                    if (callData.status == "incoming") "LLAMADA ENTRANTE" else "EN CURSO - TOCA PARA VOLVER",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 9.sp,
+                    if (callData.status == "incoming") "LLAMADA ENTRANTE" else "EN CURSO",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
             
-            // Action Buttons on the Bar
+            // Action Buttons (Compact)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (callData.status == "incoming") {
                     IconButton(
                         onClick = onAccept,
-                        modifier = Modifier.size(36.dp).background(Color.White.copy(alpha = 0.2f), CircleShape)
+                        modifier = Modifier.size(32.dp).background(Color.White, CircleShape)
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = "Accept", tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Check, contentDescription = "Accept", tint = Color.Black, modifier = Modifier.size(16.dp))
                     }
                 }
                 IconButton(
                     onClick = onHangup,
-                    modifier = Modifier.size(36.dp).background(Color.Red.copy(alpha = 0.3f), CircleShape)
+                    modifier = Modifier.size(32.dp).background(Color.Red, CircleShape)
                 ) {
-                    Icon(Icons.Default.CallEnd, contentDescription = "Hangup", tint = Color.White, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.CallEnd, contentDescription = "Hangup", tint = Color.White, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -972,3 +1004,4 @@ fun CustomMenuIcon() {
         )
     }
 }
+
