@@ -347,7 +347,8 @@ fun ChatScreen(
                     },
                     activeCall = activeCall,
                     onActiveCallChange = onActiveCallChange,
-                    rtcManager = rtcManager
+                    rtcManager = rtcManager,
+                    onGroupsFetched = { groups = it }
                 )
                 "conversation" -> ConversationScreen(
                     profile = selectedProfile,
@@ -411,7 +412,8 @@ fun ChatListScreen(
     onCreateGroup: () -> Unit,
     activeCall: ActiveCallData?,
     onActiveCallChange: (ActiveCallData?) -> Unit,
-    rtcManager: WebRTCManager
+    rtcManager: WebRTCManager,
+    onGroupsFetched: (List<ChatGroup>) -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentUserId = userProfile?.id ?: ""
@@ -433,6 +435,7 @@ fun ChatListScreen(
                             chatProfiles = contacts.map { p ->
                                 p.copy(last_message = "Canal seguro listo")
                             }
+                            onGroupsFetched(fetchedGroups)
                             isLoading = false
                             android.util.Log.d("ChatScreen", "API Central: Fetched ${contacts.size} contacts and ${fetchedGroups.size} groups")
                         }
@@ -488,6 +491,7 @@ fun ChatListScreen(
                     
                     Row(modifier = Modifier.fillMaxWidth()) {
                         TabItem("CHATS", selectedTab == "CHATS", accentYellow) { selectedTab = "CHATS" }
+                        TabItem("GRUPOS", selectedTab == "GRUPOS", accentYellow) { selectedTab = "GRUPOS" }
                         TabItem("LLAMADAS", selectedTab == "LLAMADAS", accentYellow) { selectedTab = "LLAMADAS" }
                     }
                 }
@@ -504,12 +508,6 @@ fun ChatListScreen(
                         if (isLoading && chatProfiles.isEmpty()) {
                             items(6) { SkeletonItem() }
                         } else {
-                            if (groups.isNotEmpty()) {
-                                item { SectionHeader("GRUPOS", groups.size.toString()) }
-                                items(groups) { group -> GroupItem(group, onClick = { onGroupClick(group) }) }
-                                item { Spacer(modifier = Modifier.height(24.dp)) }
-                            }
-                            
                             item { SectionHeader("CHATS DIRECTOS", chatProfiles.size.toString()) }
                             items(chatProfiles) { profile ->
                                 UserItem(
@@ -519,6 +517,13 @@ fun ChatListScreen(
                                     onClick = { onProfileClick(profile) }
                                 )
                             }
+                        }
+                    } else if (selectedTab == "GRUPOS") {
+                        if (isLoading && groups.isEmpty()) {
+                            items(4) { SkeletonItem() }
+                        } else {
+                            item { SectionHeader("TUS CLUSTERS NEURALES", groups.size.toString()) }
+                            items(groups) { group -> GroupItem(group, onClick = { onGroupClick(group) }) }
                         }
                     } else {
                         if (isLoading && callLogs.isEmpty()) {
