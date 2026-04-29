@@ -30,7 +30,9 @@ object UpdateManager {
     var downloadInfo by mutableStateOf("Preparando descarga...")
     
     var latestVersion by mutableStateOf("")
+    var isUpdateFinished by mutableStateOf(false)
     private var isSearchingManual = mutableStateOf(false)
+    private var isCurrentlyDownloading = false
 
     @Composable
     fun CheckForUpdates(currentVersion: String, context: Context, onUpdateFound: () -> Unit) {
@@ -62,12 +64,14 @@ object UpdateManager {
     }
 
     suspend fun downloadAndInstall(context: Context) {
+        if (isCurrentlyDownloading) return
+        isCurrentlyDownloading = true
         isDownloading = true
+        isUpdateFinished = false
         downloadProgress = 0f
         
         val client = HttpClient()
         try {
-            // Usar cacheDir es más seguro para FileProvider y no requiere permisos de almacenamiento externo
             val file = File(context.cacheDir, "StockManagerUpdate.apk")
             if (file.exists()) file.delete()
 
@@ -92,15 +96,17 @@ object UpdateManager {
             }
 
             downloadInfo = "DESCARGA TERMINADA. Abriendo instalador..."
+            isUpdateFinished = true
             installApk(context, file)
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 android.util.Log.e("UpdateManager", "Error en descarga", e)
                 Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                isDownloading = false // Solo cerramos si hubo error
             }
         } finally {
             client.close()
-            isDownloading = false
+            isCurrentlyDownloading = false
         }
     }
 

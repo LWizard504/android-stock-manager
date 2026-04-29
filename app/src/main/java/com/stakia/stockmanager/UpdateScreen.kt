@@ -161,7 +161,27 @@ fun UpdateScreen() {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            if (UpdateManager.downloadProgress >= 1f) {
+            if (UpdateManager.isUpdateFinished) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                Button(
+                    onClick = {
+                        val file = java.io.File(context.cacheDir, "StockManagerUpdate.apk")
+                        UpdateManager.installApk(context, file)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = saasYellow),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
+                ) {
+                    Text("INSTALAR AHORA", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                TextButton(onClick = { UpdateManager.isDownloading = false }) {
+                    Text("Cancelar y volver", color = Color.Gray, fontSize = 11.sp)
+                }
+            } else if (UpdateManager.downloadProgress >= 1f) {
+                // Fallback state if finished but not flagged
                 val context = androidx.compose.ui.platform.LocalContext.current
                 TextButton(
                     onClick = {
@@ -171,7 +191,7 @@ fun UpdateScreen() {
                     modifier = Modifier.padding(8.dp)
                 ) {
                     Text(
-                        "Si no se ha descargado/instalado haz clic aquí",
+                        "Si no se ha instalado haz clic aquí",
                         color = saasYellow,
                         fontSize = 12.sp,
                         textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
