@@ -418,10 +418,12 @@ fun ChatListScreen(
     var selectedTab by remember { mutableStateOf("CHATS") }
     var chatProfiles by remember { mutableStateOf<List<Profile>>(emptyList()) }
     var callLogs by remember { mutableStateOf<List<CallLog>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(selectedTab) {
         try {
             if (selectedTab == "CHATS") {
+                isLoading = true
                 val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
                 if (token.isNotEmpty()) {
                     SignalingManager.fetchContacts(token) { contacts, fetchedGroups, profile ->
@@ -430,16 +432,16 @@ fun ChatListScreen(
                             chatProfiles = contacts.map { p ->
                                 p.copy(last_message = "Canal seguro listo")
                             }
-                            
+                            isLoading = false
                             android.util.Log.d("ChatScreen", "API Central: Fetched ${contacts.size} contacts and ${fetchedGroups.size} groups")
                         }
                         
                         // Fetch recent messages to update "last message" snippet
                         SignalingManager.fetchRecentChats(currentUserId, token) { lastMsgs ->
                             scope.launch(Dispatchers.Main) {
-                                chatProfiles = contacts.map { profile ->
-                                    val lastMsg = lastMsgs[profile.id]
-                                    profile.copy(
+                                chatProfiles = contacts.map { p ->
+                                    val lastMsg = lastMsgs[p.id]
+                                    p.copy(
                                         last_message = lastMsg?.content ?: "Canal seguro listo",
                                         last_message_at = lastMsg?.created_at
                                     )
@@ -447,8 +449,11 @@ fun ChatListScreen(
                             }
                         }
                     }
+                } else {
+                    isLoading = false
                 }
             } else if (selectedTab == "LLAMADAS") {
+                isLoading = true
                 callLogs = SupabaseManager.client.postgrest.from("call_logs").select {
                     filter {
                         or {
@@ -458,9 +463,11 @@ fun ChatListScreen(
                     }
                     order("created_at", Order.DESCENDING)
                 }.decodeList<CallLog>()
+                isLoading = false
             }
         } catch (e: Exception) { 
             e.printStackTrace() 
+            isLoading = false
         }
     }
 
@@ -493,29 +500,37 @@ fun ChatListScreen(
                     item { Spacer(modifier = Modifier.height(16.dp)) }
                     
                     if (selectedTab == "CHATS") {
-                        if (groups.isNotEmpty()) {
-                            item { SectionHeader("GRUPOS", groups.size.toString()) }
-                            items(groups) { group -> GroupItem(group, onClick = { onGroupClick(group) }) }
-                            item { Spacer(modifier = Modifier.height(24.dp)) }
-                        }
-                        
-                        item { SectionHeader("CHATS DIRECTOS", chatProfiles.size.toString()) }
-                        items(chatProfiles) { profile ->
-                            UserItem(
-                                profile = profile, 
-                                isOnline = onlineUsers.contains(profile.id), 
-                                presence = presences[profile.id],
-                                onClick = { onProfileClick(profile) }
-                            )
+                        if (isLoading && chatProfiles.isEmpty()) {
+                            items(6) { SkeletonItem() }
+                        } else {
+                            if (groups.isNotEmpty()) {
+                                item { SectionHeader("GRUPOS", groups.size.toString()) }
+                                items(groups) { group -> GroupItem(group, onClick = { onGroupClick(group) }) }
+                                item { Spacer(modifier = Modifier.height(24.dp)) }
+                            }
+                            
+                            item { SectionHeader("CHATS DIRECTOS", chatProfiles.size.toString()) }
+                            items(chatProfiles) { profile ->
+                                UserItem(
+                                    profile = profile, 
+                                    isOnline = onlineUsers.contains(profile.id), 
+                                    presence = presences[profile.id],
+                                    onClick = { onProfileClick(profile) }
+                                )
+                            }
                         }
                     } else {
-                        items(callLogs) { log ->
-                            CallLogItem(log, currentUserId, accentYellow, onClick = {
-                                val partnerId = if (log.caller_id == currentUserId) log.receiver_id else log.caller_id
-                                val partnerName = if (log.caller_id == currentUserId) (log.receiver_name ?: "User") else (log.caller_name ?: "User")
-                                val partnerAvatar = if (log.caller_id == currentUserId) log.receiver_avatar else log.caller_avatar
-                                onInitiateCall(partnerId, log.type == "video", partnerName, partnerAvatar)
-                            })
+                        if (isLoading && callLogs.isEmpty()) {
+                            items(4) { SkeletonItem() }
+                        } else {
+                            items(callLogs) { log ->
+                                CallLogItem(log, currentUserId, accentYellow, onClick = {
+                                    val partnerId = if (log.caller_id == currentUserId) log.receiver_id else log.caller_id
+                                    val partnerName = if (log.caller_id == currentUserId) (log.receiver_name ?: "User") else (log.caller_name ?: "User")
+                                    val partnerAvatar = if (log.caller_id == currentUserId) log.receiver_avatar else log.caller_avatar
+                                    onInitiateCall(partnerId, log.type == "video", partnerName, partnerAvatar)
+                                })
+                            }
                         }
                     }
                     item { Spacer(modifier = Modifier.height(100.dp)) }
@@ -547,6 +562,30 @@ fun ChatListScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun SkeletonItem() {
+    val infiniteTransition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF1A1A1A).copy(alpha = alpha)))
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Box(modifier = Modifier.fillMaxWidth(0.5f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF1A1A1A).copy(alpha = alpha)))
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth(0.8f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF1A1A1A).copy(alpha = alpha)))
         }
     }
 }
