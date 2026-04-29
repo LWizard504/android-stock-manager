@@ -308,9 +308,9 @@ object SignalingManager {
                 if (body != null) {
                     try {
                         val json = Json { ignoreUnknownKeys = true }.parseToJsonElement(body).jsonObject
-                        val contacts = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<Profile>>(json["contacts"]!!)
-                        val groups = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<ChatGroup>>(json["groups"]!!)
-                        val currentProfile = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Profile>(json["currentProfile"]!!)
+                        val contacts = json["contacts"]?.let { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<Profile>>(it) } ?: emptyList()
+                        val groups = json["groups"]?.let { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<ChatGroup>>(it) } ?: emptyList()
+                        val currentProfile = json["currentProfile"]?.let { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Profile>(it) }
                         onResult(contacts, groups, currentProfile)
                     } catch (e: Exception) {
                         e.printStackTrace()

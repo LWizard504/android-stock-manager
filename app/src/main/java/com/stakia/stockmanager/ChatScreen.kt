@@ -916,12 +916,14 @@ fun ConversationScreen(
         
         try {
             val isGroupChat = group != null
-            val targetId = if (isGroupChat) group!!.id else profile!!.id
+            val targetId = if (isGroupChat) group?.id else profile?.id
             
-            val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
-            SignalingManager.fetchHistory(targetId, currentUserId, token, isGroupChat) { fetched ->
-                scope.launch(Dispatchers.Main) {
-                    messages = fetched.reversed()
+            if (targetId != null) {
+                val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
+                SignalingManager.fetchHistory(targetId, currentUserId, token, isGroupChat) { fetched ->
+                    scope.launch(Dispatchers.Main) {
+                        messages = fetched.reversed()
+                    }
                 }
             }
         } catch (e: Exception) { 
@@ -936,7 +938,10 @@ fun ConversationScreen(
                     if (msg.sender_id != currentUserId) {
                         messages = (messages + msg).distinctBy { it.id }
                         // Send read receipt if we are on this screen
-                        SignalingManager.sendReadReceipt(if (group != null) group.id else profile!!.id, group != null)
+                        val targetId = if (group != null) group.id else profile?.id
+                        if (targetId != null) {
+                            SignalingManager.sendReadReceipt(targetId, group != null)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -961,7 +966,10 @@ fun ConversationScreen(
         }
 
         // Initial read receipt when opening chat
-        SignalingManager.sendReadReceipt(if (group != null) group.id else profile!!.id, group != null)
+        val initialTargetId = if (group != null) group.id else profile?.id
+        if (initialTargetId != null) {
+            SignalingManager.sendReadReceipt(initialTargetId, group != null)
+        }
     }
 
     DisposableEffect(chatId) {
@@ -1178,7 +1186,7 @@ fun ConversationScreen(
                                 val newMsg = ChatMessage(
                                     id = UUID.randomUUID().toString(),
                                     sender_id = currentUserId,
-                                    recipient_id = if (group != null) null else profile!!.id,
+                                    recipient_id = if (group != null) null else profile?.id,
                                     group_id = group?.id,
                                     content = text,
                                     created_at = java.time.Instant.now().toString(),
