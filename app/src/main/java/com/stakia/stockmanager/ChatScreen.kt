@@ -422,34 +422,42 @@ fun ChatListScreen(
     LaunchedEffect(selectedTab) {
         try {
             if (selectedTab == "CHATS") {
-                // Load Groups for the current user
-                val memberships = SupabaseManager.client.postgrest.from("chat_group_members").select {
-                    filter { eq("user_id", currentUserId) }
-                }.decodeList<JsonObject>()
-                
-                val groupIds = memberships.mapNotNull { it["group_id"]?.jsonPrimitive?.contentOrNull }
-                if (groupIds.isNotEmpty()) {
-                    // Groups are handled by the parent state
-                }
-                
-                // Load Profiles/Chats
-                val fetchedProfiles = SupabaseManager.client.postgrest.from("profiles").select {
-                    filter { Profile::id neq currentUserId }
-                }.decodeList<Profile>()
-                
-                android.util.Log.d("ChatScreen", "Fetched ${fetchedProfiles.size} profiles")
-                
-                if (fetchedProfiles.isNotEmpty()) {
-                    val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
-                    SignalingManager.fetchRecentChats(currentUserId, token) { lastMsgs ->
+                val token = SupabaseManager.client.auth.currentSessionOrNull()?.accessToken ?: ""
+                if (token.isNotEmpty()) {
+                    SignalingManager.fetchContacts(token) { contacts, fetchedGroups, profile ->
                         scope.launch(Dispatchers.Main) {
-                            chatProfiles = fetchedProfiles.map { profile ->
-                                val lastMsg = lastMsgs[profile.id]
-                                profile.copy(
-                                    last_message = lastMsg?.content ?: "Canal seguro listo",
-                                    last_message_at = lastMsg?.created_at
-                                )
-                            }.sortedByDescending { it.last_message_at }
+                            // Update groups
+                            groups = fetchedGroups.map { g ->
+                                g.copy(last_message = "Cifrado de extremo a extremo")
+                            }
+                            
+                            // Update chat profiles
+                            chatProfiles = contacts.map { p ->
+                                p.copy(last_message = "Canal seguro listo")
+                            }
+                            
+                            android.util.Log.d("ChatScreen", "API Central: Fetched ${contacts.size} contacts and ${fetchedGroups.size} groups")
+                        }
+                        
+                        // Fetch recent messages to update "last message" snippet
+                        SignalingManager.fetchRecentChats(currentUserId, token) { lastMsgs ->
+                            scope.launch(Dispatchers.Main) {
+                                chatProfiles = contacts.map { profile ->
+                                    val lastMsg = lastMsgs[profile.id]
+                                    profile.copy(
+                                        last_message = lastMsg?.content ?: "Canal seguro listo",
+                                        last_message_at = lastMsg?.created_at
+                                    )
+                                }.sortedByDescending { it.last_message_at }
+                                
+                                groups = fetchedGroups.map { group ->
+                                    val lastMsg = lastMsgs[group.id]
+                                    group.copy(
+                                        last_message = lastMsg?.content ?: "Cifrado de extremo a extremo",
+                                        last_message_at = lastMsg?.created_at
+                                    )
+                                }
+                            }
                         }
                     }
                 }

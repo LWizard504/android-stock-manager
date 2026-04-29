@@ -277,4 +277,39 @@ object SignalingManager {
             }
         })
     }
+
+    fun fetchContacts(
+        token: String,
+        onResult: (List<Profile>, List<ChatGroup>, Profile?) -> Unit
+    ) {
+        val url = "$SERVER_URL/get-contacts"
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+        val client = okhttp3.OkHttpClient()
+        
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                onResult(emptyList(), emptyList(), null)
+            }
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val body = response.body?.string()
+                if (body != null) {
+                    try {
+                        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.parseToJsonElement(body).jsonObject
+                        val contacts = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<Profile>>(json["contacts"]!!)
+                        val groups = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<ChatGroup>>(json["groups"]!!)
+                        val currentProfile = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Profile>(json["currentProfile"]!!)
+                        onResult(contacts, groups, currentProfile)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        onResult(emptyList(), emptyList(), null)
+                    }
+                } else {
+                    onResult(emptyList(), emptyList(), null)
+                }
+            }
+        })
+    }
 }
