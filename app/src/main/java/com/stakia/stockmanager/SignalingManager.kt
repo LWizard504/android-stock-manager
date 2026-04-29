@@ -9,7 +9,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.decodeFromJsonElement
 
 object SignalingManager {
-    private var socket: Socket? = null
+    var socket: Socket? = null
     private const val SERVER_URL = "https://api-stockm-call-service.onrender.com"
 
     var onNewMessageListener: ((JSONObject) -> Unit)? = null
