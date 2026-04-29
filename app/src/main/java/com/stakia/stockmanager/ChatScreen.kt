@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.graphicsLayer
 import coil.compose.AsyncImage
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -1116,8 +1117,6 @@ fun ConversationScreen(
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(accentYellow)
                 )
                 
-                if (text.isNotBlank()) {
-                    IconButton(
                 if (text.isNotBlank() || replyingToMessage != null) {
                     IconButton(
                         onClick = {
@@ -1267,8 +1266,6 @@ fun ConversationScreen(
             },
             confirmButton = {}
         )
-    }
-        }
     }
 }
 
