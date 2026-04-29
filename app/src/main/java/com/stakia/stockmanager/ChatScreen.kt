@@ -363,8 +363,8 @@ fun ChatScreen(
                     accentYellow = accentYellow,
                     onlineUsers = onlineUsers,
                     presences = presences,
-                    onInitiateCall = { id, video, name, avatar -> 
-                        initiateCall(id, video, name, avatar, group != null) 
+                    onInitiateCall = { id, video, name, avatar, isGroup -> 
+                        initiateCall(id, video, name, avatar, isGroup) 
                     },
                     activeCall = activeCall,
                     onActiveCallChange = onActiveCallChange,
@@ -411,7 +411,7 @@ fun ChatListScreen(
     groups: List<ChatGroup>,
     initialChatId: String? = null,
     userProfile: Profile?,
-    onInitiateCall: (String, Boolean, String, String?) -> Unit,
+    onInitiateCall: (String, Boolean, String, String?, Boolean) -> Unit,
     onCreateGroup: () -> Unit,
     activeCall: ActiveCallData?,
     onActiveCallChange: (ActiveCallData?) -> Unit,
@@ -537,7 +537,7 @@ fun ChatListScreen(
                                     val partnerId = if (log.caller_id == currentUserId) log.receiver_id else log.caller_id
                                     val partnerName = if (log.caller_id == currentUserId) (log.receiver_name ?: "User") else (log.caller_name ?: "User")
                                     val partnerAvatar = if (log.caller_id == currentUserId) log.receiver_avatar else log.caller_avatar
-                                    onInitiateCall(partnerId, log.type == "video", partnerName, partnerAvatar)
+                                    onInitiateCall(partnerId, log.type == "video", partnerName, partnerAvatar, log.is_group)
                                 })
                             }
                         }
@@ -863,7 +863,7 @@ fun ConversationScreen(
     accentYellow: Color,
     onlineUsers: Set<String>,
     presences: Map<String, UserPresence>,
-    onInitiateCall: (String, Boolean, String, String?) -> Unit,
+    onInitiateCall: (String, Boolean, String, String?, Boolean) -> Unit,
     activeCall: ActiveCallData?,
     onActiveCallChange: (ActiveCallData?) -> Unit,
     rtcManager: WebRTCManager,
