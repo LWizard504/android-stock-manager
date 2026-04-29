@@ -190,6 +190,13 @@ object SignalingManager {
         socket?.emit("recording", data)
     }
 
+    fun sendReadReceipt(chatId: String, isGroup: Boolean) {
+        val data = JSONObject()
+        data.put("chatId", chatId)
+        data.put("isGroup", isGroup)
+        socket?.emit("message_read", data)
+    }
+
     fun sendMessage(
         to: String, 
         content: String, 

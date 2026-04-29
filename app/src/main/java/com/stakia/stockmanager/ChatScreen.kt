@@ -924,17 +924,43 @@ fun ConversationScreen(
             try {
                 val msg = neuralJson.decodeFromString<ChatMessage>(data.toString())
                 val isRelevant = if (group != null) msg.group_id == group.id else (msg.sender_id == profile?.id && msg.recipient_id == currentUserId)
-                if (isRelevant && msg.sender_id != currentUserId) {
-                    messages = (messages + msg).distinctBy { it.id }
+                if (isRelevant) {
+                    if (msg.sender_id != currentUserId) {
+                        messages = (messages + msg).distinctBy { it.id }
+                        // Send read receipt if we are on this screen
+                        SignalingManager.sendReadReceipt(if (group != null) group.id else profile!!.id, group != null)
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ChatScreen", "Error decoding message", e)
             }
         }
+
+        SignalingManager.socket?.on("message_read") { args ->
+            val data = args[0] as JSONObject
+            val readChatId = data.optString("chatId")
+            val readerId = data.optString("readerId")
+            
+            if (readChatId == (profile?.id ?: group?.id) && readerId != currentUserId) {
+                scope.launch(Dispatchers.Main) {
+                    messages = messages.map { m ->
+                        if (m.sender_id == currentUserId && m.read_at == null) {
+                            m.copy(read_at = java.time.Instant.now().toString())
+                        } else m
+                    }
+                }
+            }
+        }
+
+        // Initial read receipt when opening chat
+        SignalingManager.sendReadReceipt(if (group != null) group.id else profile!!.id, group != null)
     }
 
     DisposableEffect(chatId) {
-        onDispose { SignalingManager.onNewMessageListener = null }
+        onDispose { 
+            SignalingManager.onNewMessageListener = null 
+            SignalingManager.socket?.off("message_read")
+        }
     }
 
     val isInSelectionMode = selectedMessages.isNotEmpty()
@@ -1351,7 +1377,12 @@ fun MessageBubble(
                     )
                     if (isMe) {
                         Spacer(modifier = Modifier.width(4.dp))
-                        Icon(Icons.Default.DoneAll, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(12.dp))
+                        Icon(
+                            imageVector = Icons.Default.DoneAll, 
+                            contentDescription = null, 
+                            tint = if (msg.read_at != null) Color(0xFF3B82F6) else Color.Gray, 
+                            modifier = Modifier.size(12.dp)
+                        )
                     }
                 }
             }
