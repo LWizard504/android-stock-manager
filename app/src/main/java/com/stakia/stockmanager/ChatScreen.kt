@@ -163,7 +163,7 @@ fun ChatScreen(
         }
     }
 
-    fun initiateCall(partnerId: String, isVideo: Boolean, partnerName: String, partnerAvatar: String?) {
+    fun initiateCall(partnerId: String, isVideo: Boolean, partnerName: String, partnerAvatar: String?, isGroup: Boolean = false) {
         scope.launch {
             try {
                 // Request permissions and start call in callback or if already granted
@@ -179,9 +179,6 @@ fun ChatScreen(
                     rtcManager.startLocalStreaming(isVideo)
                 } else {
                     callPermissionLauncher.launch(perms)
-                    // Note: In a real app, we'd wait for the callback, but for simplicity 
-                    // and since the user likely already granted them, this check helps.
-                    // To be 100% sure, we'd move the rest of the logic to the launcher callback.
                 }
                 rtcManager.createPeerConnection(
                     remoteUserId = partnerId,
@@ -196,8 +193,10 @@ fun ChatScreen(
                             fromId = currentUserId,
                             fromName = userProfile?.full_name ?: "Me",
                             fromAvatar = userProfile?.avatar_url,
-                            type = "candidate", // Use candidate type for handshaking
-                            candidate = candObj
+                            type = "candidate", 
+                            candidate = candObj,
+                            isGroup = isGroup,
+                            groupId = if (isGroup) partnerId else null
                         )
                     },
                     onTrackAdded = { }
@@ -225,8 +224,10 @@ fun ChatScreen(
                         fromId = currentUserId,
                         fromName = userProfile?.full_name ?: "Me",
                         fromAvatar = userProfile?.avatar_url,
-                        type = if (isVideo) "video" else "voice", // Use voice/video only for offer
-                        offer = offerObj
+                        type = if (isVideo) "video" else "voice", 
+                        offer = offerObj,
+                        isGroup = isGroup,
+                        groupId = if (isGroup) partnerId else null
                     )
                     
                     onActiveCallChange(ActiveCallData(
@@ -341,7 +342,7 @@ fun ChatScreen(
                     groups = groups,
                     initialChatId = initialChatId,
                     userProfile = userProfile,
-                    onInitiateCall = { id, video, name, avatar -> initiateCall(id, video, name, avatar) },
+                    onInitiateCall = { id, video, name, avatar -> initiateCall(id, video, name, avatar, id.contains("group")) },
                     onCreateGroup = {
                         showCreateGroup = true
                     },
@@ -362,7 +363,9 @@ fun ChatScreen(
                     accentYellow = accentYellow,
                     onlineUsers = onlineUsers,
                     presences = presences,
-                    onInitiateCall = { id, video, name, avatar -> initiateCall(id, video, name, avatar) },
+                    onInitiateCall = { id, video, name, avatar -> 
+                        initiateCall(id, video, name, avatar, group != null) 
+                    },
                     activeCall = activeCall,
                     onActiveCallChange = onActiveCallChange,
                     rtcManager = rtcManager,
@@ -1047,13 +1050,19 @@ fun ConversationScreen(
                     }
                     val isCallActive = activeCall != null && (activeCall.status == "connected" || activeCall.status == "calling" || activeCall.status == "connecting")
                     IconButton(
-                        onClick = { if (profile != null) onInitiateCall(profile.id, false, profile.full_name ?: "User", profile.avatar_url) },
+                        onClick = { 
+                            if (profile != null) onInitiateCall(profile.id, false, profile.full_name ?: "User", profile.avatar_url, false) 
+                            else if (group != null) onInitiateCall(group.id, false, group.name, group.icon_url, true)
+                        },
                         enabled = !isCallActive,
                         modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (isCallActive) Color.DarkGray else Color(0xFF1A1A1A))
                     ) { Icon(Icons.Default.Call, contentDescription = null, tint = if (isCallActive) Color.Gray else Color.White) }
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(
-                        onClick = { if (profile != null) onInitiateCall(profile.id, true, profile.full_name ?: "User", profile.avatar_url) },
+                        onClick = { 
+                            if (profile != null) onInitiateCall(profile.id, true, profile.full_name ?: "User", profile.avatar_url, false) 
+                            else if (group != null) onInitiateCall(group.id, true, group.name, group.icon_url, true)
+                        },
                         enabled = !isCallActive,
                         modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (isCallActive) Color.DarkGray else Color(0xFF1A1A1A))
                     ) { Icon(Icons.Default.Videocam, contentDescription = null, tint = if (isCallActive) Color.Gray else accentYellow) }
@@ -1068,28 +1077,42 @@ fun ConversationScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(messages) { msg ->
-                    MessageBubble(
-                        msg = msg, 
-                        currentUserId = currentUserId,
-                        isSelected = selectedMessages.contains(msg),
-                        onLongClick = { 
-                            if (selectedMessages.isEmpty()) {
-                                selectedMessages.add(msg)
-                            }
-                        },
-                        onClick = {
-                            if (selectedMessages.isNotEmpty()) {
-                                if (selectedMessages.contains(msg)) {
-                                    selectedMessages.remove(msg)
-                                } else {
+                items(messages, key = { it.id ?: it.hashCode() }) { msg ->
+                    var isVisible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { isVisible = true }
+                    
+                    val blurAlpha by animateFloatAsState(if (isVisible) 1f else 0f, animationSpec = tween(600))
+                    val blurScale by animateFloatAsState(if (isVisible) 1f else 0.95f, animationSpec = tween(600))
+                    val blurOffset by animateFloatAsState(if (isVisible) 0f else 20f, animationSpec = tween(600))
+
+                    Box(modifier = Modifier.graphicsLayer {
+                        alpha = blurAlpha
+                        scaleX = blurScale
+                        scaleY = blurScale
+                        translationY = blurOffset
+                    }) {
+                        MessageBubble(
+                            msg = msg, 
+                            currentUserId = currentUserId,
+                            isSelected = selectedMessages.contains(msg),
+                            onLongClick = { 
+                                if (selectedMessages.isEmpty()) {
                                     selectedMessages.add(msg)
                                 }
-                            } else if (msg.file_type == "image" || msg.file_type == "video") {
-                                previewMessage = msg
+                            },
+                            onClick = {
+                                if (selectedMessages.isNotEmpty()) {
+                                    if (selectedMessages.contains(msg)) {
+                                        selectedMessages.remove(msg)
+                                    } else {
+                                        selectedMessages.add(msg)
+                                    }
+                                } else if (msg.file_type == "image" || msg.file_type == "video") {
+                                    previewMessage = msg
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
