@@ -426,12 +426,7 @@ fun ChatListScreen(
                 if (token.isNotEmpty()) {
                     SignalingManager.fetchContacts(token) { contacts, fetchedGroups, profile ->
                         scope.launch(Dispatchers.Main) {
-                            // Update groups
-                            groups = fetchedGroups.map { g ->
-                                g.copy(last_message = "Cifrado de extremo a extremo")
-                            }
-                            
-                            // Update chat profiles
+                            // Update chat profiles local state
                             chatProfiles = contacts.map { p ->
                                 p.copy(last_message = "Canal seguro listo")
                             }
@@ -449,14 +444,6 @@ fun ChatListScreen(
                                         last_message_at = lastMsg?.created_at
                                     )
                                 }.sortedByDescending { it.last_message_at }
-                                
-                                groups = fetchedGroups.map { group ->
-                                    val lastMsg = lastMsgs[group.id]
-                                    group.copy(
-                                        last_message = lastMsg?.content ?: "Cifrado de extremo a extremo",
-                                        last_message_at = lastMsg?.created_at
-                                    )
-                                }
                             }
                         }
                     }

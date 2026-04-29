@@ -4,6 +4,9 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import org.json.JSONObject
 import java.util.Collections
+import kotlinx.serialization.json.*
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.decodeFromJsonElement
 
 object SignalingManager {
     private var socket: Socket? = null
@@ -297,10 +300,10 @@ object SignalingManager {
                 val body = response.body?.string()
                 if (body != null) {
                     try {
-                        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.parseToJsonElement(body).jsonObject
-                        val contacts = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<Profile>>(json["contacts"]!!)
-                        val groups = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<ChatGroup>>(json["groups"]!!)
-                        val currentProfile = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Profile>(json["currentProfile"]!!)
+                        val json = Json { ignoreUnknownKeys = true }.parseToJsonElement(body).jsonObject
+                        val contacts = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<Profile>>(json["contacts"]!!)
+                        val groups = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<ChatGroup>>(json["groups"]!!)
+                        val currentProfile = Json { ignoreUnknownKeys = true }.decodeFromJsonElement<Profile>(json["currentProfile"]!!)
                         onResult(contacts, groups, currentProfile)
                     } catch (e: Exception) {
                         e.printStackTrace()
