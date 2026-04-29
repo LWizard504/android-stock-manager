@@ -1118,55 +1118,66 @@ fun ConversationScreen(
                 
                 if (text.isNotBlank()) {
                     IconButton(
+                if (text.isNotBlank() || replyingToMessage != null) {
+                    IconButton(
                         onClick = {
-                            val isGroup = group != null
-                            val targetId = if (isGroup) group!!.id else (profile?.id ?: "")
-                            val messageText = text
-                            val replyId = replyingToMessage?.id
-                            
-                            val newMsg = ChatMessage(
-                                id = UUID.randomUUID().toString(),
-                                sender_id = currentUserId,
-                                recipient_id = if (isGroup) null else targetId,
-                                group_id = if (isGroup) targetId else null,
-                                content = messageText,
-                                created_at = java.time.Instant.now().toString(),
-                                sender_name = userProfile?.full_name ?: "Neural User",
-                                reply_to_id = replyId,
-                                reply_to_content = replyingToMessage?.content,
-                                reply_to_sender = replyingToMessage?.sender_name
-                            )
-                            
-                            messages = messages + newMsg
-                            text = ""
-                            replyingToMessage = null
-                            
-                            scope.launch {
-                                SignalingManager.sendMessage(
-                                    to = targetId,
-                                    content = messageText,
-                                    senderName = userProfile?.full_name ?: "User",
-                                    senderAvatar = userProfile?.avatar_url,
-                                    isGroup = isGroup,
-                                    replyTo = newMsg.reply_to_id
+                            if (text.isNotBlank()) {
+                                val newMsg = ChatMessage(
+                                    id = UUID.randomUUID().toString(),
+                                    sender_id = currentUserId,
+                                    recipient_id = if (group != null) null else profile!!.id,
+                                    group_id = group?.id,
+                                    content = text,
+                                    created_at = java.time.Instant.now().toString(),
+                                    sender_name = userProfile?.full_name ?: "Neural User",
+                                    reply_to_id = replyingToMessage?.id,
+                                    reply_to_content = replyingToMessage?.content,
+                                    reply_to_sender = replyingToMessage?.sender_name
                                 )
+                                messages = (messages + newMsg).distinctBy { it.id }
+                                val tempText = text
+                                text = ""
+                                replyingToMessage = null
+                                
+                                scope.launch {
+                                    SignalingManager.sendMessage(
+                                        to = chatId,
+                                        content = tempText,
+                                        senderName = userProfile?.full_name ?: "User",
+                                        senderAvatar = userProfile?.avatar_url,
+                                        isGroup = group != null,
+                                        replyTo = newMsg.reply_to_id
+                                    )
+                                }
                             }
                         },
                         modifier = Modifier.size(40.dp).clip(CircleShape).background(accentYellow)
                     ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp)) }
                 } else {
-                    // Voice Recorder Button
+                    // Voice Recorder Button with Pulse Animation
+                    val infiniteTransition = rememberInfiniteTransition(label = "recording")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.3f,
+                        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
+                        label = "pulse"
+                    )
+
                     Box(
                         modifier = Modifier
                             .size(40.dp)
+                            .graphicsLayer {
+                                if (isRecording) {
+                                    scaleX = pulseScale
+                                    scaleY = pulseScale
+                                }
+                            }
                             .clip(CircleShape)
                             .background(if (isRecording) Color.Red else accentYellow)
                             .pointerInput(Unit) {
                                 awaitPointerEventScope {
                                     while (true) {
                                         val down = awaitFirstDown()
-                                        // Long press simulation or immediate start
-                                        // We'll start immediate for responsiveness in this neural version
                                         scope.launch {
                                             try {
                                                 val file = File(context.cacheDir, "audio_${UUID.randomUUID()}.m4a")
@@ -1225,6 +1236,8 @@ fun ConversationScreen(
                             modifier = Modifier.size(18.dp)
                         )
                     }
+                }
+            }
         }
     }
 
@@ -1363,6 +1376,20 @@ fun AudioPlayer(url: String) {
         }
     }
 
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (isPlaying) {
+                position = mediaPlayer.currentPosition.toFloat()
+                delay(100)
+            }
+        }
+    }
+
+    mediaPlayer.setOnCompletionListener {
+        isPlaying = false
+        position = 0f
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(4.dp)
@@ -1373,7 +1400,7 @@ fun AudioPlayer(url: String) {
                 isPlaying = false
             } else {
                 try {
-                    if (mediaPlayer.duration <= 0) {
+                    if (duration <= 0) {
                         mediaPlayer.reset()
                         mediaPlayer.setDataSource(url)
                         mediaPlayer.prepareAsync()
@@ -1392,12 +1419,50 @@ fun AudioPlayer(url: String) {
             Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFEAB308))
         }
         
-        LinearProgressIndicator(
-            progress = { if (duration > 0) position / duration else 0f },
-            modifier = Modifier.weight(1f).height(4.dp).clip(CircleShape),
-            color = Color(0xFFEAB308),
-            trackColor = Color.DarkGray,
+        Spacer(modifier = Modifier.width(4.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            VoiceWaveform(isPlaying, Color(0xFFEAB308))
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { if (duration > 0) position / duration else 0f },
+                modifier = Modifier.fillMaxWidth().height(2.dp).clip(CircleShape),
+                color = Color(0xFFEAB308),
+                trackColor = Color.DarkGray,
+            )
+        }
+    }
+}
+
+@Composable
+fun VoiceWaveform(isPlaying: Boolean, color: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
+    val heights = List(8) { index ->
+        infiniteTransition.animateFloat(
+            initialValue = 0.2f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 400 + index * 50, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar_$index"
         )
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier.height(20.dp).padding(horizontal = 4.dp)
+    ) {
+        heights.forEach { height ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight(if (isPlaying) height.value else 0.3f)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(color.copy(alpha = if (isPlaying) 1f else 0.5f))
+            )
+        }
     }
 }
 
