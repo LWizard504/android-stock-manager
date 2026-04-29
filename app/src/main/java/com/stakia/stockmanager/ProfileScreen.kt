@@ -35,7 +35,8 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onOpenDrawer: () -> Unit, selectedBg: String, onBgChange: (String) -> Unit) {
+fun ProfileScreen(onOpenDrawer: () -> Unit, onThemeChange: (ThemeSettings) -> Unit) {
+    val theme = LocalThemeSettings.current
     val context = LocalContext.current
     val saasYellow = Color(0xFFEAB308)
     val pureBlack = Color(0xFF000000)
@@ -225,21 +226,60 @@ fun ProfileScreen(onOpenDrawer: () -> Unit, selectedBg: String, onBgChange: (Str
             Spacer(modifier = Modifier.height(24.dp))
             
             // Personalization Section
-            DashboardCard(title = "PERSONALIZACIÓN", accentColor = saasYellow) {
-                Column(modifier = Modifier.padding(top = 16.dp)) {
+            DashboardCard(title = "PERSONALIZACIÓN AVANZADA", accentColor = saasYellow) {
+                Column(modifier = Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    // Theme Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("MODO OSCURO", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(if (theme.isDarkMode) "Activado" else "Desactivado", color = Color.Gray, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = theme.isDarkMode,
+                            onCheckedChange = { onThemeChange(theme.copy(isDarkMode = it)) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = saasYellow)
+                        )
+                    }
+
+                    Divider(color = Color.White.copy(alpha = 0.05f))
+
+                    // Bubble Colors
+                    Text("COLOR DE MENSAJES ENVIADOS", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0xFF005C4B, 0xFF1E3A5F, 0xFF3B82F6, 0xFFEF4444, 0xFFEAB308, 0xFF8B5CF6).forEach { color ->
+                            ColorCircle(Color(color), theme.sentBubbleColor == color.toInt()) {
+                                onThemeChange(theme.copy(sentBubbleColor = color.toInt()))
+                            }
+                        }
+                    }
+
+                    Text("COLOR DE MENSAJES RECIBIDOS", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0xFF202C33, 0xFF242424, 0xFF1A1A1A, 0xFF333333, 0xFF444444, 0xFF555555).forEach { color ->
+                            ColorCircle(Color(color), theme.receivedBubbleColor == color.toInt()) {
+                                onThemeChange(theme.copy(receivedBubbleColor = color.toInt()))
+                            }
+                        }
+                    }
+
+                    Divider(color = Color.White.copy(alpha = 0.05f))
+
                     Text("FONDO DE PANTALLA", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(12.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        BackgroundOption("Predeterminado", "pure_black", selectedBg == "pure_black", saasYellow) { onBgChange("pure_black") }
-                        BackgroundOption("Pulso Neural", "neural_pulse", selectedBg == "neural_pulse", saasYellow) { onBgChange("neural_pulse") }
-                        BackgroundOption("Ondas", "neural_waves", selectedBg == "neural_waves", saasYellow) { onBgChange("neural_waves") }
-                        BackgroundOption("Ecualizador", "digital_eq", selectedBg == "digital_eq", saasYellow) { onBgChange("digital_eq") }
-                        BackgroundOption("Rejilla Digital", "digital_grid", selectedBg == "digital_grid", saasYellow) { onBgChange("digital_grid") }
-                        BackgroundOption("Nebulosa", "deep_nebula", selectedBg == "deep_nebula", saasYellow) { onBgChange("deep_nebula") }
-                        BackgroundOption("Circuito", "circuit", selectedBg == "circuit", saasYellow) { onBgChange("circuit") }
+                        BackgroundOption("Puro", "pure_black", theme.wallpaperType == "pure_black", saasYellow) { onThemeChange(theme.copy(wallpaperType = "pure_black")) }
+                        BackgroundOption("Pulso", "neural_pulse", theme.wallpaperType == "neural_pulse", saasYellow) { onThemeChange(theme.copy(wallpaperType = "neural_pulse")) }
+                        BackgroundOption("Ondas", "neural_waves", theme.wallpaperType == "neural_waves", saasYellow) { onThemeChange(theme.copy(wallpaperType = "neural_waves")) }
+                        BackgroundOption("Ecualizador", "digital_eq", theme.wallpaperType == "digital_eq", saasYellow) { onThemeChange(theme.copy(wallpaperType = "digital_eq")) }
+                        BackgroundOption("Rejilla", "digital_grid", theme.wallpaperType == "digital_grid", saasYellow) { onThemeChange(theme.copy(wallpaperType = "digital_grid")) }
+                        BackgroundOption("Nebulosa", "deep_nebula", theme.wallpaperType == "deep_nebula", saasYellow) { onThemeChange(theme.copy(wallpaperType = "deep_nebula")) }
+                        BackgroundOption("Circuito", "circuit", theme.wallpaperType == "circuit", saasYellow) { onThemeChange(theme.copy(wallpaperType = "circuit")) }
                     }
                 }
             }
@@ -340,5 +380,21 @@ fun BackgroundOption(name: String, id: String, isSelected: Boolean, accentColor:
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(name, color = if (isSelected) Color.White else Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    }
+}
+@Composable
+fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(if (isSelected) 2.dp else 1.dp, if (isSelected) Color.White else Color.Transparent, CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        if (isSelected) {
+            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+        }
     }
 }

@@ -43,7 +43,8 @@ data class ChatMessage(
     val sender_name: String? = null,
     val sender_avatar: String? = null,
     val read_at: String? = null,
-    val deleted_for_users: List<String>? = emptyList()
+    val deleted_for_users: List<String>? = emptyList(),
+    val is_forwarded: Boolean? = false
 )
 
 

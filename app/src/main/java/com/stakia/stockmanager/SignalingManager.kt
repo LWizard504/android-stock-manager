@@ -206,7 +206,8 @@ object SignalingManager {
         tempId: String = java.util.UUID.randomUUID().toString(),
         fileUrl: String? = null,
         fileType: String? = null,
-        replyTo: String? = null
+        replyTo: String? = null,
+        isForwarded: Boolean = false
     ) {
         val data = JSONObject().apply {
             put("to", to)
@@ -218,6 +219,7 @@ object SignalingManager {
             put("fileUrl", fileUrl)
             put("fileType", fileType)
             put("replyTo", replyTo)
+            put("isForwarded", isForwarded)
         }
         socket?.emit("send-message", data)
     }

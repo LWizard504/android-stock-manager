@@ -160,6 +160,46 @@ fun MainContent(
     isInPip: Boolean = false,
     autoAccept: Boolean = false
 ) {
+    val context = LocalContext.current
+    var themeSettings by remember { mutableStateOf(ThemeManager.loadSettings(context)) }
+    
+    CompositionLocalProvider(LocalThemeSettings provides themeSettings) {
+        MainContentBody(
+            initialScreen = initialScreen,
+            initialChatId = initialChatId,
+            initialCallType = initialCallType,
+            initialOffer = initialOffer,
+            initialSenderName = initialSenderName,
+            initialSenderAvatar = initialSenderAvatar,
+            onCallStateChanged = onCallStateChanged,
+            onAutoAcceptProcessed = onAutoAcceptProcessed,
+            isInPip = isInPip,
+            autoAccept = autoAccept,
+            onThemeChange = { 
+                themeSettings = it
+                ThemeManager.saveSettings(context, it)
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainContentBody(
+    initialScreen: String? = null,
+    initialChatId: String? = null,
+    initialCallType: String? = null,
+    initialOffer: String? = null,
+    initialSenderName: String? = null,
+    initialSenderAvatar: String? = null,
+    onCallStateChanged: (ActiveCallData?) -> Unit = {},
+    onAutoAcceptProcessed: () -> Unit = {},
+    isInPip: Boolean = false,
+    autoAccept: Boolean = false,
+    onThemeChange: (ThemeSettings) -> Unit
+) {
+    val theme = LocalThemeSettings.current
+    val context = LocalContext.current
     var isInitialized by remember { mutableStateOf(false) }
     var currentScreen by remember(initialScreen) { 
         val startScreen = when {
@@ -178,9 +218,7 @@ fun MainContent(
         isInitialized = true
     }
 
-    var selectedBackground by remember { mutableStateOf("pure_black") }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val rtcManager = remember { WebRTCManager(context) }
     
@@ -538,7 +576,7 @@ fun MainContent(
         drawerContent = {
             if (!isInPip) {
                 ModalDrawerSheet(
-                    drawerContainerColor = Color(0xFF080808),
+                    drawerContainerColor = if (theme.isDarkMode) Color(0xFF080808) else Color.White,
                     drawerTonalElevation = 0.dp,
                     drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
                     modifier = Modifier.width(320.dp)
@@ -574,7 +612,7 @@ fun MainContent(
 
                 Box(modifier = Modifier.fillMaxSize()) {
                 if (!isInPip) {
-                    AppBackground(selectedBackground)
+                    AppBackground(theme.wallpaperType)
                 }
                 
                 Box(modifier = Modifier.padding(if (isInPip) PaddingValues(0.dp) else padding)) {
@@ -608,8 +646,7 @@ fun MainContent(
                             "pricing" -> PricingScreen(onBack = { scope.launch { drawerState.open() } })
                             "profile" -> ProfileScreen(
                                 onOpenDrawer = { scope.launch { drawerState.open() } }, 
-                                selectedBg = selectedBackground,
-                                onBgChange = { selectedBackground = it }
+                                onThemeChange = onThemeChange
                             )
                             "superadmin" -> SuperAdminScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
                         }
@@ -686,8 +723,10 @@ fun MainContent(
 
 @Composable
 fun DrawerContent(userProfile: Profile?, onNavigate: (String) -> Unit) {
+    val theme = LocalThemeSettings.current
     val isSuperAdmin = userProfile?.role == "superadmin"
-    val accentColor = if (isSuperAdmin) Color(0xFFEAB308) else Color(0xFF3B82F6)
+    val accentColor = Color(theme.accentColor)
+    val textColor = if (theme.isDarkMode) Color.White else Color.Black
     val roleLabel = if (isSuperAdmin) "Super Administrador" else "Administrador"
     val scope = rememberCoroutineScope()
 
@@ -695,7 +734,7 @@ fun DrawerContent(userProfile: Profile?, onNavigate: (String) -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(accentColor))
             Spacer(modifier = Modifier.width(12.dp))
-            Text("STOCKMANAGER", color = Color.White, fontWeight = FontWeight.Black, fontSize = 24.sp, letterSpacing = 2.sp)
+            Text("STOCKMANAGER", color = textColor, fontWeight = FontWeight.Black, fontSize = 24.sp, letterSpacing = 2.sp)
         }
         
         Spacer(modifier = Modifier.height(12.dp))
@@ -853,6 +892,8 @@ fun ActiveCallBar(
 
 @Composable
 fun DrawerItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, activeColor: Color, onClick: () -> Unit) {
+    val theme = LocalThemeSettings.current
+    val textColor = if (theme.isDarkMode) Color.White else Color.Black
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -863,16 +904,17 @@ fun DrawerItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVec
     ) {
         Icon(icon, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(16.dp))
-        Text(label, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+        Text(label, color = textColor, fontWeight = FontWeight.Medium, fontSize = 15.sp)
     }
 }
 @Composable
 fun AppBackground(type: String) {
+    val theme = LocalThemeSettings.current
     val infiniteTransition = rememberInfiniteTransition(label = "bg")
-    val saasYellow = Color(0xFFEAB308)
-    val pureBlack = Color(0xFF000000)
+    val saasYellow = Color(theme.accentColor)
+    val bgColor = if (theme.isDarkMode) Color(0xFF000000) else Color(0xFFF5F5F5)
     
-    Box(modifier = Modifier.fillMaxSize().background(pureBlack)) {
+    Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
         when (type) {
             "neural_pulse" -> {
                 val scale by infiniteTransition.animateFloat(
@@ -894,11 +936,12 @@ fun AppBackground(type: String) {
             "digital_grid" -> {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val step = 40.dp.toPx()
+                    val color = if (theme.isDarkMode) Color(0xFF111111) else Color(0xFFE0E0E0)
                     for (x in 0..size.width.toInt() step step.toInt()) {
-                        drawLine(Color(0xFF111111), Offset(x.toFloat(), 0f), Offset(x.toFloat(), size.height), strokeWidth = 1f)
+                        drawLine(color, Offset(x.toFloat(), 0f), Offset(x.toFloat(), size.height), strokeWidth = 1f)
                     }
                     for (y in 0..size.height.toInt() step step.toInt()) {
-                        drawLine(Color(0xFF111111), Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 1f)
+                        drawLine(color, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 1f)
                     }
                 }
             }

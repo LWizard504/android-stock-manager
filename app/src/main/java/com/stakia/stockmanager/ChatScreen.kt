@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -884,11 +885,44 @@ fun ConversationScreen(
     val selectedMessages = remember { mutableStateListOf<ChatMessage>() }
     var showMessageOptions by remember { mutableStateOf<ChatMessage?>(null) }
     var previewMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var forwardingMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var contactsForForward by remember { mutableStateOf<List<Profile>>(emptyList()) }
+    var groupsForForward by remember { mutableStateOf<List<ChatGroup>>(emptyList()) }
+
+    val listState = rememberLazyListState()
+    
+    // Auto-scroll logic: scroll to bottom if we are already at the bottom or if the current user sent the message
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()
+            // If lastVisibleItem is null, it's the initial load. 
+            // If index is near the end, the user was at the bottom.
+            val wasAtBottom = lastVisibleItem == null || lastVisibleItem.index >= layoutInfo.totalItemsCount - 2
+            
+            if (wasAtBottom || messages.last().sender_id == currentUserId) {
+                // Small delay to ensure the list has updated its internal state
+                delay(100)
+                listState.animateScrollToItem(messages.size - 1)
+            }
+        }
+    }
 
     // Media States
     var isRecording by remember { mutableStateOf(false) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var audioFile by remember { mutableStateOf<File?>(null) }
+    var recordingDuration by remember { mutableStateOf(0) }
+
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            recordingDuration = 0
+            while (isRecording) {
+                delay(1000)
+                recordingDuration++
+            }
+        }
+    }
     
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         uri?.let { scope.launch { uploadAndSendMessage(it, "image", context, chatId, currentUserId, userProfile, group != null) { messages = messages + it } } }
@@ -1080,45 +1114,85 @@ fun ConversationScreen(
         containerColor = Color.Transparent
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(messages, key = { it.id ?: it.hashCode() }) { msg ->
-                    var isVisible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) { isVisible = true }
-                    
-                    val blurAlpha by animateFloatAsState(if (isVisible) 1f else 0f, animationSpec = tween(600))
-                    val blurScale by animateFloatAsState(if (isVisible) 1f else 0.95f, animationSpec = tween(600))
-                    val blurOffset by animateFloatAsState(if (isVisible) 0f else 20f, animationSpec = tween(600))
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(messages, key = { it.id ?: it.hashCode() }) { msg ->
+                        var isVisible by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) { isVisible = true }
+                        
+                        val blurAlpha by animateFloatAsState(if (isVisible) 1f else 0f, animationSpec = tween(600))
+                        val blurScale by animateFloatAsState(if (isVisible) 1f else 0.95f, animationSpec = tween(600))
+                        val blurOffset by animateFloatAsState(if (isVisible) 0f else 20f, animationSpec = tween(600))
 
-                    Box(modifier = Modifier.graphicsLayer {
-                        alpha = blurAlpha
-                        scaleX = blurScale
-                        scaleY = blurScale
-                        translationY = blurOffset
-                    }) {
-                        MessageBubble(
-                            msg = msg, 
-                            currentUserId = currentUserId,
-                            isSelected = selectedMessages.contains(msg),
-                            onLongClick = { 
-                                if (selectedMessages.isEmpty()) {
-                                    selectedMessages.add(msg)
-                                }
-                            },
-                            onClick = {
-                                if (selectedMessages.isNotEmpty()) {
-                                    if (selectedMessages.contains(msg)) {
-                                        selectedMessages.remove(msg)
-                                    } else {
+                        Box(modifier = Modifier
+                            .animateItemPlacement()
+                            .graphicsLayer {
+                                alpha = blurAlpha
+                                scaleX = blurScale
+                                scaleY = blurScale
+                                translationY = blurOffset
+                            }
+                        ) {
+                            MessageBubble(
+                                msg = msg, 
+                                currentUserId = currentUserId,
+                                isSelected = selectedMessages.contains(msg),
+                                onLongClick = { 
+                                    if (selectedMessages.isEmpty()) {
                                         selectedMessages.add(msg)
                                     }
-                                } else if (msg.file_type == "image" || msg.file_type == "video") {
-                                    previewMessage = msg
+                                },
+                                onClick = {
+                                    if (selectedMessages.isNotEmpty()) {
+                                        if (selectedMessages.contains(msg)) {
+                                            selectedMessages.remove(msg)
+                                        } else {
+                                            selectedMessages.add(msg)
+                                        }
+                                    } else if (msg.file_type == "image" || msg.file_type == "video") {
+                                        previewMessage = msg
+                                    }
                                 }
+                            )
+                        }
+                    }
+                }
+
+                // Scroll to Bottom Button (WhatsApp style)
+                val showScrollButton by remember {
+                    derivedStateOf {
+                        val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+                        lastVisibleItem != null && lastVisibleItem.index < messages.size - 3
+                    }
+                }
+
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showScrollButton,
+                    enter = fadeIn() + scaleIn(),
+                    exit = fadeOut() + scaleOut(),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+                ) {
+                    FloatingActionButton(
+                        onClick = {
+                            scope.launch {
+                                listState.animateScrollToItem(messages.size - 1)
                             }
+                        },
+                        containerColor = Color.Black.copy(alpha = 0.8f),
+                        contentColor = accentYellow,
+                        shape = CircleShape,
+                        modifier = Modifier.size(44.dp).border(1.dp, accentYellow.copy(alpha = 0.3f), CircleShape),
+                        elevation = FloatingActionButtonDefaults.elevation(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Scroll to bottom",
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
@@ -1157,29 +1231,68 @@ fun ConversationScreen(
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
-                            shape = RoundedCornerShape(24.dp)
+                            shape = RoundedCornerShape(32.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
                         ) {
-                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Text("ADJUNTAR NEURAL", color = accentYellow, fontWeight = FontWeight.Black, fontSize = 12.sp)
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                    AttachmentOption(Icons.Default.Image, "Imagen", accentYellow) { imagePicker.launch("image/*"); showAttachmentMenu = false }
-                                    AttachmentOption(Icons.Default.Videocam, "Video", accentYellow) { videoPicker.launch("video/*"); showAttachmentMenu = false }
-                                    AttachmentOption(Icons.Default.Description, "Archivo", accentYellow) { filePicker.launch("*/*"); showAttachmentMenu = false }
+                            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                                Text("COMPARTIR", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, letterSpacing = 2.sp)
+                                
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    AttachmentOption(Icons.Default.Image, "Galería", Color(0xFF9333EA)) { imagePicker.launch("image/*"); showAttachmentMenu = false }
+                                    AttachmentOption(Icons.Default.Videocam, "Video", Color(0xFFE11D48)) { videoPicker.launch("video/*"); showAttachmentMenu = false }
+                                    AttachmentOption(Icons.Default.Description, "Documento", Color(0xFF2563EB)) { filePicker.launch("*/*"); showAttachmentMenu = false }
+                                }
+                                
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    AttachmentOption(Icons.Default.Person, "Contacto", Color(0xFF059669)) { showAttachmentMenu = false }
+                                    AttachmentOption(Icons.Default.LocationOn, "Ubicación", Color(0xFFD97706)) { showAttachmentMenu = false }
+                                    AttachmentOption(Icons.Default.Headset, "Audio", Color(0xFFDB2777)) { showAttachmentMenu = false }
                                 }
                             }
                         }
                     }
                 }
 
-                BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(accentYellow)
-                )
+                if (isRecording) {
+                    // Recording UI
+                    Row(
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Pulsing Red Dot
+                        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                        val alpha by infiniteTransition.animateFloat(
+                            initialValue = 1f,
+                            targetValue = 0.2f,
+                            animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+                            label = "alpha"
+                        )
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(Color.Red.copy(alpha = alpha)))
+                        
+                        // Timer
+                        val minutes = (recordingDuration / 60).toString().padStart(2, '0')
+                        val seconds = (recordingDuration % 60).toString().padStart(2, '0')
+                        Text("$minutes:$seconds", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        
+                        // Waveform Animation
+                        Box(Modifier.weight(1f).height(24.dp)) {
+                            RecordingWaveform(accentYellow)
+                        }
+                        
+                        Text("Desliza para cancelar", color = Color.Gray, fontSize = 12.sp)
+                    }
+                } else {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(accentYellow)
+                    )
+                }
                 
-                if (text.isNotBlank() || replyingToMessage != null) {
+                if ((text.isNotBlank() || replyingToMessage != null) && !isRecording) {
                     IconButton(
                         onClick = {
                             if (text.isNotBlank()) {
@@ -1313,7 +1426,18 @@ fun ConversationScreen(
                     TextButton(onClick = { replyingToMessage = msg; showMessageOptions = null }) {
                         Text("Responder", color = Color.White)
                     }
-                    TextButton(onClick = { /* Forward Logic */ showMessageOptions = null }) {
+                    TextButton(onClick = { 
+                        forwardingMessage = msg
+                        showMessageOptions = null
+                        // Fetch contacts when opening forward dialog
+                        scope.launch {
+                            val token = SupabaseManager.client.auth.currentAccessTokenOrNull() ?: ""
+                            SignalingManager.fetchContacts(token) { c, g, _ ->
+                                contactsForForward = c
+                                groupsForForward = g
+                            }
+                        }
+                    }) {
                         Text("Reenviar", color = Color.White)
                     }
                     if (msg.sender_id == currentUserId) {
@@ -1326,8 +1450,70 @@ fun ConversationScreen(
                     }
                 }
             },
-            confirmButton = {}
+            confirmButton = {
+                TextButton(onClick = { showMessageOptions = null }) {
+                    Text("CANCELAR", color = Color.Gray)
+                }
+            }
         )
+    }
+
+    // Forward Dialog
+    forwardingMessage?.let { msg ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { forwardingMessage = null }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(0.9f).fillMaxHeight(0.7f),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("REENVIAR A...", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item { Text("CONTACTOS", color = accentYellow, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        items(contactsForForward) { contact ->
+                            ForwardItem(contact.full_name ?: "User", contact.avatar_url) {
+                                scope.launch {
+                                    SignalingManager.sendMessage(
+                                        to = contact.id,
+                                        content = msg.content ?: "",
+                                        senderName = userProfile?.full_name ?: "User",
+                                        senderAvatar = userProfile?.avatar_url,
+                                        isGroup = false,
+                                        fileUrl = msg.file_url,
+                                        fileType = msg.file_type,
+                                        isForwarded = true
+                                    )
+                                }
+                                forwardingMessage = null
+                                Toast.makeText(context, "Reenviado a ${contact.full_name}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        
+                        item { Spacer(modifier = Modifier.height(16.dp)); Text("GRUPOS", color = accentYellow, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                        items(groupsForForward) { g ->
+                            ForwardItem(g.name, g.icon_url) {
+                                scope.launch {
+                                    SignalingManager.sendMessage(
+                                        to = g.id,
+                                        content = msg.content ?: "",
+                                        senderName = userProfile?.full_name ?: "User",
+                                        senderAvatar = userProfile?.avatar_url,
+                                        isGroup = true,
+                                        fileUrl = msg.file_url,
+                                        fileType = msg.file_type,
+                                        isForwarded = true
+                                    )
+                                }
+                                forwardingMessage = null
+                                Toast.makeText(context, "Reenviado a ${g.name}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1340,10 +1526,12 @@ fun MessageBubble(
     onLongClick: () -> Unit = {},
     onClick: () -> Unit = {}
 ) {
+    val theme = LocalThemeSettings.current
     val isMe = msg.sender_id == currentUserId
     val alignment = if (isMe) Alignment.End else Alignment.Start
-    val bgColor = if (isSelected) Color(0xFFEAB308).copy(alpha = 0.2f) else (if (isMe) Color(0xFF1A1A1A) else Color(0xFF0F0F0F))
-    val shape = if (isMe) RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp) else RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
+    val bgColor = if (isSelected) Color(theme.accentColor).copy(alpha = 0.3f) 
+                  else (if (isMe) Color(theme.sentBubbleColor) else Color(theme.receivedBubbleColor))
+    val shape = if (isMe) RoundedCornerShape(16.dp, 16.dp, 2.dp, 16.dp) else RoundedCornerShape(16.dp, 16.dp, 16.dp, 2.dp)
 
     Column(modifier = Modifier.fillMaxWidth().combinedClickable(onLongClick = onLongClick, onClick = onClick), horizontalAlignment = alignment) {
         Box(
@@ -1351,10 +1539,19 @@ fun MessageBubble(
                 .widthIn(max = 280.dp)
                 .clip(shape)
                 .background(bgColor)
-                .border(1.dp, if (isSelected) Color(0xFFEAB308) else Color(0xFF222222), shape)
+                .border(1.dp, if (isSelected) Color(theme.accentColor) else Color.White.copy(alpha = 0.05f), shape)
                 .padding(if (msg.file_type == "image") 4.dp else 12.dp)
         ) {
             Column {
+                if (msg.is_forwarded == true) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Reply, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(12.dp).graphicsLayer { rotationY = 180f })
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reenviado", color = Color.Gray, fontSize = 10.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
                 if (msg.reply_to_id != null) {
                     ReplyBubble(msg.reply_to_sender ?: "User", msg.reply_to_content ?: "")
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1456,47 +1653,124 @@ fun AudioPlayer(url: String) {
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(4.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = 8.dp)
     ) {
-        IconButton(onClick = {
-            if (isPlaying) {
-                mediaPlayer.pause()
-                isPlaying = false
-            } else {
-                try {
-                    if (duration <= 0) {
-                        mediaPlayer.reset()
-                        mediaPlayer.setDataSource(url)
-                        mediaPlayer.prepareAsync()
-                        mediaPlayer.setOnPreparedListener {
-                            duration = it.duration
-                            it.start()
-                            isPlaying = true
-                        }
+        // Play/Pause Button with Circular Background
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFEAB308).copy(alpha = 0.1f))
+                .clickable {
+                    if (isPlaying) {
+                        mediaPlayer.pause()
+                        isPlaying = false
                     } else {
-                        mediaPlayer.start()
-                        isPlaying = true
+                        try {
+                            if (duration <= 0) {
+                                mediaPlayer.reset()
+                                mediaPlayer.setDataSource(url)
+                                mediaPlayer.prepareAsync()
+                                mediaPlayer.setOnPreparedListener {
+                                    duration = it.duration
+                                    it.start()
+                                    isPlaying = true
+                                }
+                            } else {
+                                mediaPlayer.start()
+                                isPlaying = true
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
                     }
-                } catch (e: Exception) { e.printStackTrace() }
-            }
-        }) {
-            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFEAB308))
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color(0xFFEAB308),
+                modifier = Modifier.size(24.dp)
+            )
         }
         
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         
         Column(modifier = Modifier.weight(1f)) {
-            VoiceWaveform(isPlaying, Color(0xFFEAB308))
-            Spacer(modifier = Modifier.height(4.dp))
-            LinearProgressIndicator(
-                progress = { if (duration > 0) position / duration else 0f },
-                modifier = Modifier.fillMaxWidth().height(2.dp).clip(CircleShape),
-                color = Color(0xFFEAB308),
-                trackColor = Color.DarkGray,
+            // Waveform and Slider
+            Box(contentAlignment = Alignment.Center) {
+                VoiceWaveform(isPlaying, Color(0xFFEAB308).copy(alpha = 0.3f))
+                
+                Slider(
+                    value = position,
+                    onValueChange = { 
+                        position = it
+                        mediaPlayer.seekTo(it.toInt())
+                    },
+                    valueRange = 0f..(if (duration > 0) duration.toFloat() else 1f),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFFEAB308),
+                        activeTrackColor = Color(0xFFEAB308),
+                        inactiveTrackColor = Color.White.copy(alpha = 0.1f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(20.dp)
+                )
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val currentSecs = (position / 1000).toInt()
+                val totalSecs = (duration / 1000).toInt()
+                Text(
+                    text = String.format("%02d:%02d", currentSecs / 60, currentSecs % 60),
+                    color = Color.Gray,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = String.format("%02d:%02d", totalSecs / 60, totalSecs % 60),
+                    color = Color.Gray,
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RecordingWaveform(color: Color) {
+    val infiniteTransition = rememberInfiniteTransition(label = "wave")
+    val animValues = List(20) { index ->
+        infiniteTransition.animateFloat(
+            initialValue = 0.2f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 400 + (index * 50), easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "bar_$index"
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        animValues.forEach { anim ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(anim.value)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(color.copy(alpha = 0.6f))
             )
         }
     }
 }
+
 
 @Composable
 fun VoiceWaveform(isPlaying: Boolean, color: Color) {
@@ -1939,3 +2213,28 @@ fun CallActionButton(
     }
 }
 
+@Composable
+fun ForwardItem(name: String, avatar: String?, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .background(Color.White.copy(alpha = 0.05f))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(32.dp).clip(CircleShape).background(Color.DarkGray),
+            contentAlignment = Alignment.Center
+        ) {
+            if (avatar != null) {
+                AsyncImage(model = avatar, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Text(name.take(1).uppercase(), color = Color.White, fontSize = 12.sp)
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
+}
